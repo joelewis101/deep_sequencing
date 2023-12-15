@@ -242,9 +242,7 @@ matrix.
 # Results
 
 Parameter estimates from the models are shown in @fig-amrgenesmod. The
-conclusions are largely unchanged from the simpler random intercept models. The
-implied correlation of two samples within-participant is shown in figure
-@fig-correlation 
+conclusions are largely unchanged from the simpler random intercept models.
 
 ```{r}
 #| label: fig-amrgenesmod
