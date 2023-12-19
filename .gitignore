@@ -6,7 +6,6 @@ data_raw/
 data_processed/
 amr-gene-multilevel-gp-cholfactv2
 amr-gene-logreg
-*.html
 *.pdf
 *.jpg
 
