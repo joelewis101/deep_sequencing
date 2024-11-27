@@ -5,6 +5,8 @@ negbin_gp
 poisson_gp
 negbin_gp_nopreds
 *.tab
+*.docx
+*.png
 *otter*
 *.zip
 .DS_Store
