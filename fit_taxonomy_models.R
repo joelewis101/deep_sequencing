@@ -276,8 +276,4 @@ mod_diagnostics_df <-
 write_rds(mod_diagnostics_df, 
   here("data_processed/gp_taxonomy_mod_diagnostics_df.rda"), compress = "gz")
 
-write_rds(outcome_vars, here("data_taxonomy_processed/gp_outcome_vars.rda"))
-
-
-
-
+write_rds(outcome_vars, here("data_processed/gp_taxonomy_outcome_vars.rda"))
