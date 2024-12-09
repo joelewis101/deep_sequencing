@@ -6,7 +6,6 @@ library(patchwork)
 library(kableExtra)
 library(tidytext)
 library(tidybayes)
-library(NegBinomial)
 
 
 mod_sum_df <-
@@ -50,24 +49,6 @@ simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars
     select(-name) |>
     pivot_wider(id_cols = c(itr, chain), names_from = var, values_from = value) |>
     janitor::clean_names()
-  tax_simulate_exposure(
-    outcome_var = "phylum_Proteobacteria",
-    exposure_var = "ceftriaxone",
-    mod_draws = tax_mod_draws,
-    outcome_vars = tax_outcome_vars
-  ) |>
-    group_by(t, exposure, outcome) |>
-    summarise(
-      med = median(reads),
-      lci = quantile(reads, 0.025),
-      uci = quantile(reads, 0.975)
-    ) |>
-    ggplot(aes(t, med, ymin = lci, ymax = uci, color = exposure, fill = exposure)) +
-    geom_line() +
-    geom_ribbon(color = NA, alpha = 0.3) +
-    xlim(c(-7, 20)) +
-    facet_grid(exposure ~ outcome)
-
 
   generate_coef <- function(cov, tau) {
     coef <-
@@ -218,6 +199,9 @@ df |>
   labs(y = "Proportion", linetype = "Exposure")
 
 ggsave(here("eccmid_plot1.pdf"), width = 10, height = 3)
+
+
+ggsave(here("eccmid_plot1.png"), width = 10, height = 3)
 
 # taxonomy
 
@@ -372,8 +356,8 @@ df2 <-
   tax_simulate_exposure_multi(
     exposure_var = c("ceftriaxone", "amoxicillin", "cotrimoxazole", "ciprofloxacin"),
     outcome_var = c("phylum_Proteobacteria", "order_Enterobacterales", "genus_Escherichia"),
-    mod_draws = mod_draws,
-    outcome_vars = outcome_vars
+    mod_draws = tax_mod_draws,
+    outcome_vars = tax_outcome_vars
   )
 
 # df2 |>
@@ -411,3 +395,4 @@ df2 |>
   
 
 ggsave(here("eccmid_plot2.pdf"), width = 10, height = 3)
+ggsave(here("eccmid_plot2.png"), width = 10, height = 3)
