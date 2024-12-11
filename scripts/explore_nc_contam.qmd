@@ -189,8 +189,9 @@ samples. This could have been when pipetting from the malawi boxes into plate
 for CGR, so it may not be that the real `NC` samples were sequenced at all -
 perhaps a way forward would be to remove all the low-read samples (ie below 0.5
 million or some similar cutoff which would) from downstream analysis (this would
-be 24 samples in total). This would likely remove the possibility that a rue
-`NVC
+be 24 samples in total). This would likely remove the possibility that a true
+transposition has happened. This cutoff is shown on the plot below, and these
+samples saved as `data_processed/samples_to_drop.txt`
 
 I think we should also explore the possibility that these look at the assembled
 *E. coli* from these `NC` samples and see if there are very similar *E. coli* in
@@ -198,3 +199,25 @@ the other samples on the same extraction run. A possibility would be to exclude
 all the samples on the run, but I think the low nanopore concentration provides
 evidence that there wasn't *lots* of contamination of these samples at the point
 that they were extracted.
+
+```{r}
+#| fig.cap: "Suggested cutoff to remove low-read number samples"
+
+reads |>
+    filter(type == "patient sample") |>
+    ggplot(aes(conc, reads, color = grepl("NC_5_[F|C]", name))) +
+    geom_point() +
+    facet_wrap(~ type, scales = "free") +
+    labs(x = "Nanodrop conc.", color = "5_F6\nor 5_C6") +
+    scale_y_log10() +
+    geom_hline(yintercept = 5e5)
+
+
+reads |>
+filter(reads < 5e5 | grepl("NC", name)) |>
+as.data.frame() |>
+pull(name) |>
+write_lines(here("data_processed/samples_to_drop.txt"))
+
+
+```

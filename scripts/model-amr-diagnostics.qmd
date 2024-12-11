@@ -14,7 +14,9 @@ execute:
 
 # Background
 
-Plot traceplots and MCMC diagnostics for deep sequencing resistome models.
+Plot traceplots and MCMC diagnostics for deep sequencing resistome models - this
+document looks at `amr-gene-logreg.stan` outputs, the standard random effect
+models.
 
 ```{r} 
 

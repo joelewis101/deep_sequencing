@@ -66,6 +66,8 @@ library(blantyreESBL)
 library(patchwork)
 library(kableExtra)
 library(tidytext)
+library(blantyreSepsis)
+library(kableExtra)
 
 df <-
   read_tsv(
@@ -106,6 +108,18 @@ df2 <-
     by = c("name" = "lab_id")
   )
 
+# filter samples to drop
+
+samples_to_drop <- 
+  read_lines(here("data_processed/samples_to_drop.txt"))
+
+df2 <- 
+  df2 |>
+  filter(!name %in% tolower(samples_to_drop))
+
+df <-
+  df |>
+    select(!matches(paste(tolower(samples_to_drop), collapse = "|")))
 
 ```
 # Results
@@ -140,6 +154,92 @@ left_join(
   format = "html",
   table.attr = 'data-quarto-disable-processing="true"') |>
   kable_styling(full_width = F)
+
+
+```
+
+## Participant demographics
+
+```{r}
+#| label: tbl-demog
+
+included_participants <-
+  df2 |>
+    pull(pid) |>
+    unique()
+
+btESBL_participants |>
+  filter(pid %in% included_participants) |>
+  select(calc_age, ptsex, keepanim, arm, hivstatus, hivonart, hivcpt) |>
+  blantyreSepsis::pretty_tbl_df() |>
+  filter(!levels %in% c("Male", "No")) |>
+  mutate(variable =
+    case_when(
+      levels == 1 ~ "Hospitalised/antibiotic exposed",
+      levels == 2 ~ "Hospitalised/antibiotic unexposed",
+      levels == 3 ~ "Community/antibiotic unexposed",
+      variable == "calc_age" ~ "Age (years) median (IQR)",
+      variable == "ptsex" ~ "Female sex",
+      variable == "keepanim" ~ "Animals at home",
+      grepl("eactive|Unknown", levels) ~ levels, 
+      variable == "hivonart" ~ "Of PLWHIV\nCurrent ART",
+      variable == "hivcpt" ~ "OF PLWHIV\nCurrent CPT",
+      TRUE ~ variable)) |>
+    select(-levels) |>
+  kbl(caption = "Characteristics of included participants") |>
+  kable_classic(full_width = FALSE) |>
+  pack_rows("Demographics", 1,3) |>
+  pack_rows("Study Arm", 4,6) |>
+  pack_rows("HIV status", 7,11) 
+```
+
+## Antimicrobial exposures
+
+```{r}
+#| label: tbl-abexp
+
+c("Amoxicillin" = "amoxy",
+  "Gentamicin" = "genta",
+  "Azithromycin" = "azithro",
+  "TB therapy" = "tb",
+  "Penicillin" = "benzy",
+  "Fluconazole" = "fluco",
+  "Ceftriaxone" = "cefo",
+  "Amphotericin" = "ampho",
+  "Quinine" = "quin",
+  "Chloramphenicol" = "chlora",
+  "LA" = "coart",
+  "Ciprofloxacin" = "cipro",
+  "Co-amoxiclav" = "coamo",
+  "Artesunate" = "arte",
+  "Cotrimoxazole" = "cotri",
+  "Clindamycin" = "clinda",
+  "Doxycycline" = "doxy",
+  "Erythromycin" = "erythro",
+  "Aciclovir" = "acicl",
+  "Flucloxacillin" = "fluclox",
+  "Metronidazole" = "metro",
+  "Streptomycin" = "strepto"
+  ) -> rename_lookup
+
+btESBL_exposures |>
+  filter(pid %in% included_participants) |>
+  select(-c(assess_type, died, hosp))  |>
+  rename(!!!rename_lookup) |>
+  pivot_longer(-pid) |> 
+  group_by(pid, name) |>
+  summarise(exposed = any(value == 1)) |>
+  group_by(name) |>
+  summarise(n = sum(exposed), N = length(exposed)) |>
+  arrange(desc(n)) |>
+  mutate(perc = paste0(sp_dc(100*n/N, 0),"%"),
+  exposed = paste0(n,"/", N, " (", perc,")")) |>
+  transmute(
+    Antimicrobial = name,
+    Exposed = exposed) |>
+  kbl(caption = "Antimicrobial exposures in the cohort") |>
+  kable_classic(full_width = FALSE)
+
 
 ```
 
@@ -379,12 +479,16 @@ df |>
     subclass != "METHICILLIN",
     !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
   ) |>
-  left_join(
+  right_join(
+    semi_join(
     btESBL_stoolESBL |>
       select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
       mutate(lab_id = tolower(lab_id)),
-    by = c("name" = "lab_id")
-  ) |>
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
   mutate(class = factor(subclass)) |>
   group_by(pid, arm, class) |>
   summarise(present = any(value == 1)) |>
@@ -441,12 +545,16 @@ df |>
     subclass != "METHICILLIN",
     !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
   ) |>
-  left_join(
+  right_join(
+    semi_join(
     btESBL_stoolESBL |>
       select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
       mutate(lab_id = tolower(lab_id)),
-    by = c("name" = "lab_id")
-  ) |>
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
   mutate(class = factor(subclass)) |>
   group_by(pid, arm, visit, class) |>
   summarise(present = any(value == 1)) |>
@@ -485,12 +593,16 @@ df |>
     subclass != "METHICILLIN",
     !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
   ) |>
-  left_join(
+  right_join(
+    semi_join(
     btESBL_stoolESBL |>
       select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
       mutate(lab_id = tolower(lab_id)),
-    by = c("name" = "lab_id")
-  ) |>
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
   select(pid, arm, visit, ESBL) |>
   unique() |>
   group_by(arm, visit) |>
@@ -529,17 +641,21 @@ df |>
     subclass != "METHICILLIN",
     !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
   ) |>
-  left_join(
+  right_join(
+    semi_join(
     btESBL_stoolESBL |>
       select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
       mutate(lab_id = tolower(lab_id)),
-    by = c("name" = "lab_id")
-  ) |>
-    filter(value == 1) |>
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+    # filter(value == 1) |>
   group_by(name, ESBL) |>
   summarise(
     ceph_gene_present = if_else(
-      any(subclass == "CEPHALOSPORIN"),
+      any(subclass == "CEPHALOSPORIN" & value == 1),
       "present",
       "absent")) |>
   ungroup() |>
@@ -567,13 +683,10 @@ df |>
 
 Look now at prevalence of all antibiotic classes stratified by arm and visit.
 The aim here is to assess the effect of antimicrobial exposure on AMR genes
-other than beta lactamases. To inform this, the antibiotic exposures in arm 1
-are shown in @fig-abxexp (taken from DASSIM publication at
-<https://doi.org/10.1093/cid/ciab710>). See below for a more sophisticated
-attempt to link antimicrobial exposure to AMR gene acquisition. The prevalence
-of AMRFinder-defined AMR gene subclass by arm and visit is shown in
-@fig-amrvstime - note that this is _subclass_ rather than _class_ (as is shown
-in @fig-amrclassprev, which is why the labels are not entirely clear )
+other than beta lactamases.The prevalence of AMRFinder-defined AMR gene subclass
+by arm and visit is shown in @fig-amrvstime - note that this is _subclass_
+rather than _class_ (as is shown in @fig-amrclassprev, which is why the labels
+are not entirely clear )
 
 This suggests that several gene subclasses increase in response
 to antimicrobial exposure (i.e. they increase at visit 1 then fall off):
@@ -602,14 +715,13 @@ increase in aminoglycoside genes. I quantify these effects with a modelling
 approach below.
 
 
-![Antibiotic exposure in arm
-1](dassim_abx_exposure.jpg){#fig-abxexp}
 
 ```{r}
 #| label: fig-amrvstime
 #| fig-cap: "Prevalence of AMRFinder defined AMR gene subclass gene stratified by study visit and arm excluding beta-lacatamase genes"
 #| fig.height: 12
 #| fig.width: 10
+
 
 
 df |>
@@ -620,12 +732,16 @@ df |>
   filter(
     class != "BETA-LACTAM"
   ) |>
-  left_join(
+  right_join(
+    semi_join(
     btESBL_stoolESBL |>
       select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
       mutate(lab_id = tolower(lab_id)),
-    by = c("name" = "lab_id")
-  ) |>
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
   mutate(class = as.factor(tolower(subclass))) |>
   filter(value == 1) |>
   select(pid, name, arm, visit, class) |>
@@ -672,6 +788,8 @@ df |>
 #| fig.width: 8
 
 
+
+
 df |>
   mutate(gene_symbol = make_clean_names(gene_symbol)) |>
   pivot_longer(-c(gene_symbol, class, subclass)) |>
@@ -692,12 +810,16 @@ df |>
       "clindamycin_erythromycin_streptogramin b",
       "rifamycin"
     )) |>
-  left_join(
+  right_join(
+    semi_join(
     btESBL_stoolESBL |>
       select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
       mutate(lab_id = tolower(lab_id)),
-    by = c("name" = "lab_id")
-  ) |>
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
   filter(value == 1) |>
   mutate(arm = as.character(arm),
     subclass = gsub("_", " ", subclass)) |>
@@ -893,7 +1015,7 @@ library(patchwork)
 library(kableExtra)
 library(tidytext)
 
-mod_sum_df <- 
+mod_sum_df <-
   read_rds(here("data_processed/gp_mod_sum_df.rda"))
 
 mod_sum_df |>
@@ -938,10 +1060,195 @@ cross_join(
    hh = exp(-x^2 / (2* hh))) |>
   ggplot(aes(x,f, ymin = ll, ymax = hh, group = outcome_var)) +
   geom_line(alpha = 0.5)
+```
+
+# Drilling down to genes
+
+## Gene subcategories that increase with exposure
+
+What are these genes that are associated with the relative exposures? Plot for
+each exposure the genes of all categories that have an effect where the 95% CrI
+is > 1 (i.e. we can be pretty sure of an effect).
+
+```{r}
+
+plot_df <-
+mod_sum_df |>
+  filter(grepl("beta\\[", parameter), ll > 0) |>
+  mutate(parameter = 
+    case_when(
+      grepl("1", parameter) ~ "b1_cephalosporin",
+      grepl("2", parameter) ~  "b2_hospitalisation",
+      grepl("3", parameter) ~ "b3_cotrimoxazole",
+      grepl("4", parameter) ~ "b4_ciprofloxacin",
+    grepl("5", parameter) ~ "b5_amoxicillin",
+    TRUE ~ parameter)
+  ) 
+
+exposures <- unique(plot_df$parameter) |> sort()
+
+plot_top_genes <- function(exposure, mod_sum_df, df) {
+ 
+  gene_categories <-
+    mod_sum_df |>
+      filter(parameter == exposure) |>
+      filter(ll > 0) |>
+      arrange(desc(m)) |>
+      pull(outcome_var)
+
+  df |>
+    mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+    pivot_longer(-c(gene_symbol, class, subclass)) |>
+    filter(!grepl("^nc", name)) |>
+    mutate(name = gsub("_.*$", "", name)) |>
+    mutate(
+      subclass = tolower(subclass),
+      subclass = gsub("-|/", "_", subclass)
+    ) |>
+    filter(subclass %in% gene_categories) |>
+    right_join(
+      semi_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      df2,
+      by = join_by(lab_id == name)
+    ),
+       by = join_by(name == lab_id)
+        ) |>
+    filter(value == 1) |>
+    mutate(arm = as.factor(arm)) |>
+    mutate(
+    subclass = factor(
+        gsub("_", " ", subclass),
+        levels = gsub("_", " ", gene_categories))
+    ) |>
+    ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
+    geom_bar() +
+    facet_wrap(~ subclass, scales = "free", ncol = 3,
+      labeller = labeller(subclass = label_wrap_gen(25))) +
+    coord_flip() +
+    labs(title = paste0("Exposure: ", exposure),
+         x = "gene")
 
 
+}
+
+gene_plots <-
+  tibble(
+    exposure = as.factor(exposures),
+    plots = map(exposures, plot_top_genes, plot_df, df)
+  )
 
 ```
+
+```{r}
+#| output: asis
+res <- pmap_chr(gene_plots, \(exposure, plots) {
+  knitr::knit_child(text = c(
+    "## `r exposure`",
+    "```{r}",
+    "#| echo: false",
+    "#| fig.height : 6",
+    "plots",
+    "```",
+    ""), envir = environment(), quiet = TRUE)
+})
+cat(res, sep = '\n')
+```
+
+## Gene categories that decrease with exposure
+
+
+```{r}
+
+plot_df <-
+mod_sum_df |>
+  filter(grepl("beta\\[", parameter), hh < 0) |>
+  mutate(parameter = 
+    case_when(
+      grepl("1", parameter) ~ "b1_cephalosporin",
+      grepl("2", parameter) ~  "b2_hospitalisation",
+      grepl("3", parameter) ~ "b3_cotrimoxazole",
+      grepl("4", parameter) ~ "b4_ciprofloxacin",
+    grepl("5", parameter) ~ "b5_amoxicillin",
+    TRUE ~ parameter)
+  ) 
+
+
+exposures <- 
+  unique(plot_df$parameter) |> sort()
+
+plot_top_genes <- function(exposure, mod_sum_df, df) {
+ 
+  gene_categories <-
+    mod_sum_df |>
+      filter(parameter == exposure) |>
+      filter(hh < 0) |>
+      arrange(desc(m)) |>
+      pull(outcome_var)
+
+  df |>
+    mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+    filter(!grepl("^nc", name)) |>
+    mutate(name = gsub("_.*$", "", name)) |>
+    mutate(
+      subclass = tolower(subclass),
+      subclass = gsub("-|/", "_", subclass)
+    ) |>
+    filter(subclass %in% gene_categories) |>
+    right_join(
+      semi_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      df2,
+      by = join_by(lab_id == name)
+    ),
+       by = join_by(name == lab_id)
+        ) |>
+    filter(value == 1) |>
+    mutate(arm = as.factor(arm)) |>
+    mutate(
+    subclass = factor(
+        gsub("_", " ", subclass),
+        levels = gsub("_", " ", gene_categories))
+    ) |>
+    ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
+    geom_bar() +
+    facet_wrap(~ subclass, scales = "free", ncol = 3,
+      labeller = labeller(subclass = label_wrap_gen(25))) +
+    coord_flip() +
+    labs(title = paste0("Exposure: ", exposure),
+         x = "gene")
+
+
+}
+
+gene_plots <-
+  tibble(
+    exposure = as.factor(exposures),
+    plots = map(exposures, plot_top_genes, plot_df, df)
+  )
+
+```
+
+```{r}
+#| output: asis
+res <- pmap_chr(gene_plots, \(exposure, plots) {
+  knitr::knit_child(text = c(
+    "## `r exposure`",
+    "```{r}",
+    "#| echo: false",
+    "#| fig.height : 6",
+    "plots",
+    "```",
+    ""), envir = environment(), quiet = TRUE)
+})
+cat(res, sep = '\n')
+```
+
 
 These largely come up with the same conclusions as eyeballing the plots above.
 Main takeaways:

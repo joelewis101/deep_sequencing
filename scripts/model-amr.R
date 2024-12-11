@@ -24,6 +24,8 @@ df <-
   ) |>
   janitor::clean_names()
 
+samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
+
 df <-
   df |>
   pivot_longer(-c(class, subclass, gene_symbol)) |>
@@ -106,6 +108,10 @@ df_mod <-
   ) |>
   mutate(across(matches("exp"), ~ if_else(is.na(.x), -1, .x))) |>
   arrange(pid, assess_type)
+
+df_mod <-
+  df_mod |>
+  filter(!name %in% tolower(samples_to_drop))
 
 df_mod |>
   select(pid, matches(("exp_"))) |>
