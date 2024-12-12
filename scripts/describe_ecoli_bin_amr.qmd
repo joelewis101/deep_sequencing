@@ -1,0 +1,150 @@
+---
+title: Describe E. coli bin resistome
+date: today
+date-format: "D MMMM YYYY"
+format:
+  html:
+    embed-resources: true
+engine: knitr
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Overview
+
+The overall resistome analysis used all the metagenome assemblies with
+AMRfinderplus. The assemblies were binned and those identified as E. coli had it
+run again with the E. coli specific options
+
+```{r}
+library(tidyverse)
+library(here)
+library(janitor)
+library(blantyreESBL)
+library(patchwork)
+library(kableExtra)
+library(cmdstanr)
+library(bayesplot)
+
+# all samples
+df <-
+  read_tsv(
+    here(
+      "data_raw/ECO_AMRfinder_all_metagenomes_default_17_11_23/AMR_binary_matrix.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
+
+all_included_samples <-
+  df |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "sample_[0-9]{1,3}_([^_]*)_",
+      group = 1
+    )
+  ) |>
+  filter(name != "nc") |>
+  filter(!name %in% tolower(samples_to_drop)) |>
+  pull(name) |>
+  unique()
+
+dfgene <-
+  read_tsv(
+    here(
+      "data_raw/E._coli_bins_AMR_gene_matrix.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+
+dfmut <-
+  read_tsv(
+    here(
+      "data_raw/E._coli_bins_AMR_mutation_matrix.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+dfgene <-
+  dfgene |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "sample_[0-9]{1,3}_([^_]*)_",
+      group = 1
+    )
+  ) |>
+  filter(!name %in% samples_to_drop) |>
+  unique() |>
+  mutate(type = "gene")
+
+dfmut <-
+  dfmut |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "sample_[0-9]{1,3}_([^_]*)_",
+      group = 1
+    )
+  ) |>
+  filter(!name %in% samples_to_drop) |>
+  unique() |>
+  mutate(type = "mutation")
+
+metadata <-
+  btESBL_stoolESBL |>
+  mutate(
+    lab_id = tolower(lab_id),
+    assess_type = as.numeric(difftime(data_date, enroll_date, unit = "days"))
+  ) |>
+  select(pid, arm, visit, lab_id, assess_type) |>
+  filter(lab_id %in% all_included_samples)
+```
+
+# Results
+
+There are `r length(unique(dfgene$name))` samples in the gene table and `r length(unique(dfmut$name))`  in the mutation table - presumably these are all the samples (of the 426) that had *E. coli* assemblies. 
+
+
+```{r} 
+#| label: tbl-nsamples
+
+metadata |>
+  filter(lab_id %in% dfmut$name) |>
+  count(arm) |>
+  kbl(caption = "Number of samples per arm",
+  format = "html",
+  table.attr = 'data-quarto-disable-processing="true"') |>
+  kable_styling(full_width = FALSE)
+```
+
+```{r} 
+#| label: fig-plotgenesandmuts
+#| fig.cap: "Number of samples with a given gene"
+#| fig.height: 15
+
+bind_rows(
+  dfgene,
+  dfmut
+) |>
+  filter(value == 1) |>
+  ggplot(aes(fct_infreq(gene_symbol), color = class, fill = class)) +
+  geom_bar() +
+  coord_flip() +
+  facet_wrap(~ type)
+
+
+```
+
+# Conclusion
+
+All of the mutations and genes seem to be present in all the samples? Has
+something gone wrong somewhere?
