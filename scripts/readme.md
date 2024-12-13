@@ -20,7 +20,7 @@ The taxonomy models are
 - `negbin-randintercept.stan` negative binomial absolute read count model with random
 - intercept by participant
 - `negbin_gp_nopreds` negative binomial absolute read count model with gaussian process
-- within-participant correlation with no predictor variables
+- within-participant correlation with no predicted values for participants
 - `negbin_gp` negative binomial absolute read count model with gaussian process
 - within-participant correlation
 - `poisson_gp.stan` poisson bsolute read count model with gaussian process

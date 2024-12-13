@@ -180,6 +180,7 @@ library(pheatmap)
 
 biom <- import_biom(here("data_raw/vivien_taxonomy_reports/table.biom"))
 
+samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
 
 # add metadata
 biom <-
@@ -223,6 +224,13 @@ taxa_to_filter <-
 
 biom <- prune_taxa(!taxa_names(biom) %in% taxa_to_filter, biom)
 
+# remove those with low reads
+biom <- 
+  prune_samples(
+    !sample_names(biom) %in% samples_to_drop,
+    biom
+  )
+         
 
 biom_bact <- subset_taxa(biom, Kingdom == "Bacteria")
 
@@ -252,7 +260,8 @@ otu_r_df <-
       ),
     by = join_by(name == lab_id)
   ) |>
-  filter(!is.na(visit))
+  filter(!is.na(visit)) |>
+  filter(!name %in% toupper(samples_to_drop))
 
 
 ```
@@ -265,8 +274,9 @@ are given in the resistome analysis.
 ## Alpha and beta diversity
 
 Overall, the PCA plot of beta diversity (i.e. difference in species composition
-between samples) doesn't look as though there is any strong pattern either in
-association with ESBL status by culture or study arm/visit ([@fig-beta-div]).
+between samples) doesn't look as though there is any strong pattern in
+association with ESBL status by culture; but there are perhaps some associations
+by study arm/visit ([@fig-beta-div]).
 
 As Viv showed, there does seem to be a reduction in alpha diversity (species
 richness) for visit 1 arm 1, corresponding (probably) to antimicrobial exposure
@@ -287,7 +297,22 @@ ordinate( otu_table(biom_bact_r), "PCoA", "bray")
 plot_ordination(biom_bact_r, pcoa_biom, color = "ESBL") +
   facet_grid(arm ~ visit)
 
+
+
 ```
+
+```{r}
+#| label: fig-beta-div2
+#| fig-cap: "PCA of Bray-Curtis dissimilarity (calculated at species level, relative abundances) stratified by arm and visit. Density plot for each arm/visit combination shows distribution of samples in PCA space; there is a suggestion I think of difference between arm 1, especially visit 0/1 (maximally antibiotic exposed) and arm 3."
+pcoa_df <-
+plot_ordination(biom_bact_r, pcoa_biom, color = "ESBL", justDF = TRUE)
+
+ggplot(pcoa_df, aes(Axis.1, Axis.2, group = interaction(arm,visit))) +
+geom_density2d_filled(contour_var = "ndensity") +
+facet_grid(arm ~ visit)
+```
+
+
 
 ```{r}
 #| label: fig-alpha-div
@@ -604,11 +629,12 @@ df <-
 df |>
   mutate(gene_symbol = make_clean_names(gene_symbol)) |>
   pivot_longer(-c(gene_symbol, class, subclass)) |>
-  filter(!grepl("^nc", name)) |>
   mutate(
     name = toupper(gsub("_.*$", "", name)),
     subclass = tolower(gsub("/", "-", subclass))
   ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
   group_by(name, class) |>
   summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
   pivot_wider(id_cols = name, names_from = class, values_from = amr_present) |>
@@ -648,11 +674,12 @@ pheatmap(
 df |>
   mutate(gene_symbol = make_clean_names(gene_symbol)) |>
   pivot_longer(-c(gene_symbol, class, subclass)) |>
-  filter(!grepl("^nc", name)) |>
   mutate(
     name = toupper(gsub("_.*$", "", name)),
     subclass = tolower(gsub("/", "-", subclass))
   ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
   group_by(name, class) |>
   summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
   pivot_wider(id_cols = name, names_from = class, values_from = amr_present) |>
@@ -689,14 +716,16 @@ pheatmap(
 #| fig.width: 6
 #| fig.height: 6
 
+
 df |>
   mutate(gene_symbol = make_clean_names(gene_symbol)) |>
   pivot_longer(-c(gene_symbol, class, subclass)) |>
-  filter(!grepl("^nc", name)) |>
   mutate(
     name = toupper(gsub("_.*$", "", name)),
     subclass = tolower(gsub("/", "-", subclass))
   ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
   group_by(name, class) |>
   summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
   pivot_wider(id_cols = name, names_from = class, values_from = amr_present) |>

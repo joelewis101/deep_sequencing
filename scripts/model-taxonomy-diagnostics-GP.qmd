@@ -14,7 +14,7 @@ execute:
 
 # Background
 
-Plot traceplots and MCMC diagnostics for deep sequencing resistome models -
+Plot traceplots and MCMC diagnostics for deep sequencing taxonomy models -
 Gaussian Process models.
 
 ```{r} 
@@ -29,10 +29,10 @@ library(cmdstanr)
 library(bayesplot)
 
 
-mod_sum_df <- 
+mod_sum_df <-
   read_rds(here("data_processed/gp_taxonomy_mod_sum_df.rda"))
 
-drawslistout <- 
+drawslistout <-
   read_rds(here("data_processed/gp_taxonomy_drawslistout.rda"))
 
 fitlistout <-
@@ -42,7 +42,6 @@ mod_diagnostics_df <-
   read_rds(here("data_processed/gp_taxonomy_mod_diagnostics_df.rda"))
 
 outcome_vars <- read_rds(here("data_processed/gp_taxonomy_outcome_vars.rda"))
-
 ```
 
 # Results
@@ -60,9 +59,8 @@ mod_diagnostics_df |>
   pivot_longer(-outcome_var) |>
   ggplot(aes(outcome_var, value)) +
   geom_col() +
-  coord_flip() + 
-  facet_wrap(~ name)
-
+  coord_flip() +
+  facet_wrap(~name)
 ```
 ## R-hat
 
@@ -73,19 +71,19 @@ mod_diagnostics_df |>
 #| fig.width: 15
 
 map2(
-  fitlistout, outcome_vars, \(x,y) as_tibble(x$summary()) |> 
-    mutate(outcome_var = y)) -> te
+  fitlistout, outcome_vars, \(x, y) as_tibble(x$summary()) |>
+    mutate(outcome_var = y)
+) -> te
 
 bind_rows(te) -> te
 
-te |> 
+te |>
   filter(!grepl("lp|gamma", variable)) |>
   mutate(outcome_var = gsub("_", " ", outcome_var)) |>
   ggplot(aes(variable, rhat)) +
   geom_point() +
   coord_flip() +
-  facet_wrap(~ outcome_var, labeller = labeller(outcome_var = label_wrap_gen(25))) 
-
+  facet_wrap(~outcome_var, labeller = labeller(outcome_var = label_wrap_gen(25)))
 ```
 
 ## Traceplots
@@ -94,14 +92,10 @@ te |>
 plotlist <- list()
 
 for (i in seq_len(length(outcome_vars))) {
-
-  plotlist[[i]] <- 
-  mcmc_trace(drawslistout[[i]],  regex_pars = "alpha|beta|sigma|tau|length|phi") +
-  labs(title = outcome_vars[i])
-
+  plotlist[[i]] <-
+    mcmc_trace(drawslistout[[i]], regex_pars = "alpha|beta|sigma|tau|length|phi") +
+    labs(title = outcome_vars[i])
 }
-
-
 ```
 
 
@@ -115,7 +109,8 @@ res <- map_chr(plotlist, \(plots) {
     "#| echo: false",
     "plots",
     "```",
-    ""), envir = environment(), quiet = TRUE)
+    ""
+  ), envir = environment(), quiet = TRUE)
 })
-cat(res, sep = '\n')
+cat(res, sep = "\n")
 ```

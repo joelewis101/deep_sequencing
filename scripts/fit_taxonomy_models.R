@@ -1,4 +1,3 @@
-
 library(tidyverse)
 library(phyloseq)
 library(here)
@@ -10,6 +9,7 @@ library(bayesplot)
 
 biom <- import_biom(here("data_raw/vivien_taxonomy_reports/table.biom"))
 
+samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
 
 # add metadata
 biom <-
@@ -69,7 +69,8 @@ otu_abs <-
       select(lab_id, pid, arm, visit, t),
     by = join_by(name == lab_id)
   ) |>
-  filter(!is.na(visit))
+  filter(!is.na(visit)) |>
+  filter(!name %in% toupper(samples_to_drop))
 
 
 exps <-
@@ -123,34 +124,35 @@ exps <-
   )
 
 df_mod <-
-left_join(
-  otu_abs |>
-    group_by(name, pid, arm, visit, t) |>
-    summarise(depth = sum(value)),
-  otu_abs |>
-    group_by(name, Phylum) |>
-    summarise(reads = sum(value)) |>
-    filter(Phylum != "", Phylum %in% rank_bacterial_phyla$Phylum[1:3]) |>
-    mutate(Phylum = paste0("phylum_", Phylum)) |>
-    pivot_wider(id_cols = name, names_from = Phylum, values_from = reads)) |>
   left_join(
-  otu_abs |>
-  filter(Phylum == "Proteobacteria") |>
-  group_by(name, Order) |>
-  summarise(reads = sum(value)) |>
-  filter(Order != "", Order %in% rank_proteobacteria_orders$Order[1:10]) |>
-  mutate(Order = paste0("order_", Order)) |>
-  pivot_wider(id_cols = name, names_from = Order, values_from = reads)
+    otu_abs |>
+      group_by(name, pid, arm, visit, t) |>
+      summarise(depth = sum(value)),
+    otu_abs |>
+      group_by(name, Phylum) |>
+      summarise(reads = sum(value)) |>
+      filter(Phylum != "", Phylum %in% rank_bacterial_phyla$Phylum[1:3]) |>
+      mutate(Phylum = paste0("phylum_", Phylum)) |>
+      pivot_wider(id_cols = name, names_from = Phylum, values_from = reads)
   ) |>
   left_join(
-  otu_abs |>
-    filter(Order == "Enterobacterales") |>
-    group_by(name, Genus) |>
-    summarise(reads = sum(value)) |>
-    filter(Genus != "", Genus %in% rank_enterobacterales_genus$Genus[1:11]) |>
-    mutate(Genus = paste0("genus_", Genus)) |>
-    pivot_wider(id_cols = name, names_from = Genus, values_from = reads)
-)  |>
+    otu_abs |>
+      filter(Phylum == "Proteobacteria") |>
+      group_by(name, Order) |>
+      summarise(reads = sum(value)) |>
+      filter(Order != "", Order %in% rank_proteobacteria_orders$Order[1:10]) |>
+      mutate(Order = paste0("order_", Order)) |>
+      pivot_wider(id_cols = name, names_from = Order, values_from = reads)
+  ) |>
+  left_join(
+    otu_abs |>
+      filter(Order == "Enterobacterales") |>
+      group_by(name, Genus) |>
+      summarise(reads = sum(value)) |>
+      filter(Genus != "", Genus %in% rank_enterobacterales_genus$Genus[1:11]) |>
+      mutate(Genus = paste0("genus_", Genus)) |>
+      pivot_wider(id_cols = name, names_from = Genus, values_from = reads)
+  ) |>
   cross_join(
     tibble(exps = unique(exps$name))
   ) |>
@@ -178,40 +180,34 @@ left_join(
   mutate(across(matches("exp"), ~ if_else(is.na(.x), -1, .x))) |>
   arrange(pid, t)
 
-
-mean_assess_type <- mean(df_mod$assess_type)
-sd_assess_type <- mean(df_mod$assess_type)
-
-
 outcome_vars <- names(df_mod)[grepl("phylum|order|genus", names(df_mod))]
 
 fitlistout <- list()
 drawslistout <- list()
 summarylistout <- list()
 
-outcome_vars <- outcome_vars[1:3]
+# outcome_vars <- outcome_vars[1:3]
 
 mod <- cmdstan_model(here("negbin_gp_nopreds.stan"))
 
-for (i in seq_len(length(outcome_vars))) {
+problem_models <- outcome_vars[grepl("Firm|Hypho|Desulf|Burkhol|Serrat", outcome_vars)]
 
+for (i in seq_len(length(outcome_vars))) {
   print(paste0("Generating model data for outcome var ", outcome_vars[i]))
   print(paste0("Variable ", i, " of ", length(outcome_vars)))
-
 
   stan_data_list <-
     list(
       n = nrow(df_mod),
       n_participants = length(unique(df_mod$pid)),
       n_covariates = 5,
-    t = scale(df_mod$t)[,1],
-    N = df_mod |>
-      group_by(pid) |>
-      summarise(n = n()) |>
-      pull(n),
+      t = scale(df_mod$t)[, 1],
+      N = df_mod |>
+        group_by(pid) |>
+        summarise(n = n()) |>
+        pull(n),
       t_e = matrix(
         c(
-
           df_mod$exp_cefo / sd(df_mod$t),
           df_mod$exp_hosp / sd(df_mod$t),
           df_mod$exp_cotri / sd(df_mod$t),
@@ -222,10 +218,11 @@ for (i in seq_len(length(outcome_vars))) {
         ncol = 5
       ),
       y = df_mod[[outcome_vars[i]]],
-    d = log(df_mod$depth)
+      d = log(df_mod$depth)
     )
 
   print("Extracting draws and saving to list")
+
 
   fit <- mod$sample(
     data = stan_data_list,
@@ -234,22 +231,21 @@ for (i in seq_len(length(outcome_vars))) {
     # iter_warmup = 1000,
     # iter_sampling = 1000,
     refresh = 100,
-
+    adapt_delta = 0.99
   )
 
   fitlistout[[i]] <- fit
 
   d <- fit$draws()
 
-  drawslistout[[i]] <- d 
+  drawslistout[[i]] <- d
 
-  df_sum_out <- mcmc_intervals_data(d, prob_outer = 0.95) 
+  df_sum_out <- mcmc_intervals_data(d, prob_outer = 0.95)
   df_sum_out$outcome_var <- outcome_vars[i]
   summarylistout[[i]] <- df_sum_out
-
 }
 
-mod_sum_df <- bind_rows(summarylistout) 
+mod_sum_df <- bind_rows(summarylistout)
 
 write_rds(mod_sum_df, here("data_processed/gp_taxonomy_mod_sum_df.rda"), compress = "gz")
 
@@ -257,23 +253,24 @@ write_rds(fitlistout, here("data_processed/gp_taxonomy_fitlistout.rda"), compres
 
 write_rds(drawslistout, here("data_processed/gp_taxonomy_drawslistout.rda"), compress = "gz")
 
+write_rds(outcome_vars, here("data_processed/gp_taxonomy_outcome_vars.rda"))
 
 diagnosticsumlistout <- list()
 
 for (i in seq_len(length(outcome_vars))) {
-
   dfout <- bind_rows(fitlistout[[i]]$diagnostic_summary())
   dfout$outcome_var <- outcome_vars[i]
 
   diagnosticsumlistout[[i]] <- dfout
-
 }
 
 mod_diagnostics_df <-
   bind_rows(diagnosticsumlistout)
 
 
-write_rds(mod_diagnostics_df, 
-  here("data_processed/gp_taxonomy_mod_diagnostics_df.rda"), compress = "gz")
+write_rds(mod_diagnostics_df,
+  here("data_processed/gp_taxonomy_mod_diagnostics_df.rda"),
+  compress = "gz"
+)
 
 write_rds(outcome_vars, here("data_processed/gp_taxonomy_outcome_vars.rda"))
