@@ -19,7 +19,8 @@ outcome_vars <-
 
 
 simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars,
-                              runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7) {
+                              runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7,
+                              t_scale_factor = 55.25) {
   # outcome_var = string, outcome AMR subclass
   # exposure_var = name of covariate from model
   # exposure_string = human readable string of exposure for plots
@@ -57,7 +58,7 @@ simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars
       } else if (cov > 0) {
         return(1)
       } else if (cov < 0) {
-        return(exp(cov / tau))
+        return(exp(cov / (tau * t_scale_factor)))
       }
   }
   # runin = 7
@@ -66,23 +67,23 @@ simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars
   # b2_exp <- 10
 
   if (exposure_var == "ceftriaxone") {
-    cov_beta_1 <- c(rep(1, cov_exp), seq(0, -(t_max - cov_exp) + 1, -1))
+    cov_beta_1 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp) , -1))
   } else {
     cov_beta_1 <- 0
   }
 
   if (exposure_var == "cotrimoxazole") {
-    cov_beta_3 <- c(rep(1, cov_exp), seq(0, -(t_max - cov_exp) + 1, -1))
+    cov_beta_3 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
     cov_beta_3 <- 0
   }
   if (exposure_var == "ciprofloxacin") {
-    cov_beta_4 <- c(rep(1, cov_exp), seq(0, -(t_max - cov_exp) + 1, -1))
+    cov_beta_4 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
     cov_beta_4 <- 0
   }
   if (exposure_var == "amoxicillin") {
-    cov_beta_5 <- c(rep(1, cov_exp), seq(0, -(t_max - cov_exp) + 1, -1))
+    cov_beta_5 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
     cov_beta_5 <- 0
   }
@@ -102,7 +103,7 @@ simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars
       ) |>
         mutate(
           cov_beta_1 = cov_beta_1,
-          cov_beta_2 = c(rep(1, b2_exp), seq(0, -(t_max - b2_exp) + 1, -1)),
+          cov_beta_2 = c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1)),
           cov_beta_3 = cov_beta_3,
           cov_beta_4 = cov_beta_4,
           cov_beta_5 = cov_beta_5
@@ -127,7 +128,7 @@ simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars
 }
 
 simulate_exposure_multi <- function(outcome_var_to_sim, exposure_vars, mod_draws, outcome_vars,
-                                    runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7) {
+                                    runin = 7, t_max = 30, b2_exp = 10, cov_exp = 7, t_scale_factor  = 55.25) {
   i <- 1
   listout <- list()
   for (outcome_var in outcome_var_to_sim) {
@@ -140,7 +141,8 @@ simulate_exposure_multi <- function(outcome_var_to_sim, exposure_vars, mod_draws
         runin = runin,
         t_max = t_max,
         b2_exp = b2_exp,
-        cov_exp = 7
+        cov_exp = 7,
+        t_scale_factor = t_scale_factor
       )
       i <- i + 1
     }
@@ -168,7 +170,7 @@ df |>
   ggplot(aes(t, med, ymin = lci, ymax = uci, color = exposure, fill = exposure)) +
   geom_line() +
   geom_ribbon(color = NA, alpha = 0.3) +
-  xlim(c(-7, 20)) +
+  xlim(c(-7, 30)) +
   facet_grid(exposure ~ outcome)
 
 
@@ -193,7 +195,7 @@ df |>
   )) +
   geom_line() +
   # geom_ribbon(color = NA, alpha = 0.3) +
-  xlim(c(-4, 15)) +
+  xlim(c(-4, 30)) +
   facet_grid(~outcome) +
   theme_bw() +
   labs(y = "Proportion", linetype = "Exposure")
@@ -218,7 +220,8 @@ tax_outcome_vars <-
 
 
 tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars,
-                                  runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7) {
+                                  runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7,
+                                  t_scale_factor = 55.25) {
   # outcome_var = string, outcome AMR subclass
   # exposure_var = name of covariate from model
   # exposure_string = human readable string of exposure for plots
@@ -256,7 +259,7 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
       } else if (cov > 0) {
         return(1)
       } else if (cov < 0) {
-        return(exp(cov / tau))
+        return(exp(cov / (tau*t_scale_factor)))
       }
   }
   # runin = 7
@@ -265,23 +268,23 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
   # b2_exp <- 10
 
   if (exposure_var == "ceftriaxone") {
-    cov_beta_1 <- c(rep(1, cov_exp), seq(0, -(t_max - cov_exp) + 1, -1))
+    cov_beta_1 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
     cov_beta_1 <- 0
   }
 
   if (exposure_var == "cotrimoxazole") {
-    cov_beta_3 <- c(rep(1, cov_exp), seq(0, -(t_max - cov_exp) + 1, -1))
+    cov_beta_3 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
     cov_beta_3 <- 0
   }
   if (exposure_var == "ciprofloxacin") {
-    cov_beta_4 <- c(rep(1, cov_exp), seq(0, -(t_max - cov_exp) + 1, -1))
+    cov_beta_4 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
     cov_beta_4 <- 0
   }
   if (exposure_var == "amoxicillin") {
-    cov_beta_5 <- c(rep(1, cov_exp), seq(0, -(t_max - cov_exp) + 1, -1))
+    cov_beta_5 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
     cov_beta_5 <- 0
   }
@@ -301,7 +304,7 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
       ) |>
         mutate(
           cov_beta_1 = cov_beta_1,
-          cov_beta_2 = c(rep(1, b2_exp), seq(0, -(t_max - b2_exp) + 1, -1)),
+          cov_beta_2 = c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1)),
           cov_beta_3 = cov_beta_3,
           cov_beta_4 = cov_beta_4,
           cov_beta_5 = cov_beta_5
@@ -329,7 +332,8 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
 
 
 tax_simulate_exposure_multi <- function(outcome_var_to_sim, exposure_vars, mod_draws, outcome_vars,
-                                        runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7) {
+                                        runin = 7, t_max = 30, b2_exp = 10, cov_exp = 7,
+                                        t_scale_factor = 55.25) {
   i <- 1
   listout <- list()
   for (outcome_var in outcome_var_to_sim) {
@@ -342,7 +346,8 @@ tax_simulate_exposure_multi <- function(outcome_var_to_sim, exposure_vars, mod_d
         runin = runin,
         t_max = t_max,
         b2_exp = b2_exp,
-        cov_exp = cov_exp
+        cov_exp = cov_exp,
+        t_scale_factor = t_scale_factor
       )
       i <- i + 1
     }
@@ -360,18 +365,18 @@ df2 <-
     outcome_vars = tax_outcome_vars
   )
 
-# df2 |>
-#   group_by(t, exposure, outcome) |>
-#   summarise(
-#     med = median(reads),
-#     lci = quantile(reads, 0.025),
-#     uci = quantile(reads, 0.975)
-#   ) |>
-#   ggplot(aes(t, med, ymin = lci, ymax = uci, color = exposure, fill = exposure)) +
-#   geom_line() +
-#   geom_ribbon(color = NA, alpha = 0.3) +
-#   xlim(c(-7, 20)) +
-#   facet_grid(exposure ~ outcome)
+df2 |>
+  group_by(t, exposure, outcome) |>
+  summarise(
+    med = median(reads),
+    lci = quantile(reads, 0.025),
+    uci = quantile(reads, 0.975)
+  ) |>
+  ggplot(aes(t, med, ymin = lci, ymax = uci, color = exposure, fill = exposure)) +
+  geom_line() +
+  geom_ribbon(color = NA, alpha = 0.3) +
+  xlim(c(-7, 20)) +
+  facet_grid(exposure ~ outcome)
 
 df2 |>
   filter(exposure %in% c("amoxicillin", "ceftriaxone", "cotrimoxazole")) |>
@@ -388,11 +393,11 @@ df2 |>
   )) +
   geom_line() +
   # geom_ribbon(color = NA, alpha = 0.3) +
-  xlim(c(-4, 15)) +
+  xlim(c(-4, 30)) +
   facet_grid(~outcome, scales = "free") +
   theme_bw() +
   labs(y = "Proportion", linetype = "Exposure")
-  
+
 
 ggsave(here("eccmid_plot2.pdf"), width = 10, height = 3)
 ggsave(here("eccmid_plot2.png"), width = 10, height = 3)
