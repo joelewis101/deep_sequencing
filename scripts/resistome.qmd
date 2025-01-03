@@ -718,9 +718,9 @@ approach below.
 
 ```{r}
 #| label: fig-amrvstime
-#| fig-cap: "Prevalence of AMRFinder defined AMR gene subclass gene stratified by study visit and arm excluding beta-lacatamase genes"
+#| fig-cap: "Prevalence of AMRFinder defined AMR gene subclass gene stratified by study visit and arm"
 #| fig.height: 12
-#| fig.width: 10
+#| fig.width: 12
 
 
 
@@ -729,9 +729,9 @@ df |>
   pivot_longer(-c(gene_symbol, class, subclass)) |>
   filter(!grepl("^nc", name)) |>
   mutate(name = gsub("_.*$", "", name)) |>
-  filter(
-    class != "BETA-LACTAM"
-  ) |>
+  # filter(
+  #   class != "BETA-LACTAM"
+  # ) |>
   right_join(
     semi_join(
     btESBL_stoolESBL |>
@@ -774,7 +774,7 @@ df |>
   geom_point() +
   geom_line() +
   geom_errorbar(width = 0) +
-  facet_wrap(~class, labeller = labeller(class = label_wrap_gen(25)), ncol = 7) +
+  facet_wrap(~class, labeller = labeller(class = label_wrap_gen(25)), ncol = 8) +
   theme_bw() +
   theme(strip.text = element_text(size = 7))
 
@@ -1004,8 +1004,8 @@ conclusions are largely unchanged from the simpler random intercept models.
 ```{r}
 #| label: fig-amrgenesmod
 #| fig-cap: "Parameter estimates from regression models"
-#| fig.height: 55
-#| fig.width: 8
+#| fig.height: 18
+#| fig.width: 15
 
 library(tidyverse)
 library(here)
@@ -1022,25 +1022,25 @@ mod_sum_df |>
   filter(grepl("beta|sigma|alpha|length|tau", parameter)) |>
   mutate(parameter = 
     case_when(grepl("1", parameter) ~ paste0("_", parameter, " - cephalosporin"),
-    grepl("2", parameter) ~ paste0("_", parameter, " - hospitalisation"),
+    # grepl("2", parameter) ~ paste0("_", parameter, " - hospitalisation"),
     grepl("3", parameter) ~ paste0("_", parameter, " - cotrimoxazole"),
     grepl("4", parameter) ~ paste0("_", parameter, " - ciprofloxacin"),
     grepl("5", parameter) ~ paste0("_", parameter, " - amoxicillin"),
     TRUE ~ parameter)
   ) |>
+  filter(grepl("beta\\[", parameter)) |>
   mutate(outcome_var = gsub("_", " ", outcome_var),
+         # outcome_var = str_wrap(outcome_var, width = 25),
          outcome_var = as.factor(outcome_var),
          outcome_var = reorder_within(outcome_var, m, parameter)) |>
   ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
   geom_point() +
   geom_errorbar() +
   coord_flip() +
-  facet_wrap(~ parameter, scales = "free", ncol = 1) +
+  facet_wrap(~ parameter, scales = "free", ncol = 2,) +
   scale_x_reordered() +
   theme_bw() +
-  geom_hline(yintercept = 0, linetype = "dashed")
-    
-  
+  geom_hline(yintercept = 0, linetype = "dashed") 
 
 
 ```

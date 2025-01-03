@@ -303,7 +303,7 @@ plot_ordination(biom_bact_r, pcoa_biom, color = "ESBL") +
 
 ```{r}
 #| label: fig-beta-div2
-#| fig-cap: "PCA of Bray-Curtis dissimilarity (calculated at species level, relative abundances) stratified by arm and visit. Density plot for each arm/visit combination shows distribution of samples in PCA space; there is a suggestion I think of difference between arm 1, especially visit 0/1 (maximally antibiotic exposed) and arm 3."
+#| fig-cap: "PCA of Bray-Curtis dissimilarity (calculated at species level, relative abundances) stratified by arm and visit. Density plot for each arm/visit combination shows distribution of samples in PCA space; there is a suggestion I think of difference between arm 1, especially visit 0/1 (m,"
 pcoa_df <-
 plot_ordination(biom_bact_r, pcoa_biom, color = "ESBL", justDF = TRUE)
 
@@ -658,11 +658,61 @@ pheatmap(
   cormat[
     rownames(cormat) %in% c("Bacteroidetes", "Firmicutes", "Proteobacteria"),
     !dimnames(cormat)[[1]] %in% c("Bacteroidetes", "Firmicutes", "Proteobacteria")
-  ]
+  ],
+  color = viridis::viridis(100),
 )
 
 
 ```
+
+
+
+```{r}
+#| label: fig-amr-corr-phylum2
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene subclass and phylum abundance"
+#| fig.width: 12
+#| fig.height: 12
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+    otu_r_df |>
+      group_by(name, pid, arm, visit, Phylum) |>
+      summarise(value = sum(value)) |>
+      filter(Phylum %in% rank_bacterial_phyla$Phylum, Phylum != "") |>
+      mutate(Phylum = factor(Phylum, levels = rank_bacterial_phyla$Phylum)) |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Phylum, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat
+
+rownames(cormat) <- cormat$name
+
+cormat <- cor(select(cormat, -name), method = "spearman")
+
+pheatmap(
+  cormat[
+    rownames(cormat) %in% rank_bacterial_phyla$Phylum,
+    !dimnames(cormat)[[1]] %in% rank_bacterial_phyla$Phylum
+  ],
+  color = viridis::viridis(100),
+)
+
+
+```
+
 
 
 ```{r}
@@ -706,9 +756,60 @@ pheatmap(
   cormat_order[
     rownames(cormat_order) %in% rank_proteobacteria_orders$Order,
     !dimnames(cormat_order)[[1]] %in% rank_proteobacteria_orders$Order
-  ]
+  ],
+  color = viridis::viridis(100),
 )
 ```
+
+```{r}
+#| label: fig-amr-corr-order2
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene subclass and order abundance"
+#| fig.width: 12
+#| fig.height: 12
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+otu_r_df |>
+  filter(Phylum == "Proteobacteria") |>
+  group_by(name, pid, arm, visit, Order) |>
+  summarise(value = sum(value)) |>
+  filter(Order %in% rank_proteobacteria_orders$Order, Order != "") |>
+  mutate(Order = factor(Order, levels = rank_proteobacteria_orders$Order)) |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Order, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat_order
+
+
+
+rownames(cormat_order) <- cormat_order$name
+
+cormat_order <- cor(select(cormat_order, -name), method = "spearman")
+
+pheatmap(
+  cormat_order[
+    rownames(cormat_order) %in% rank_proteobacteria_orders$Order,
+    !dimnames(cormat_order)[[1]] %in% rank_proteobacteria_orders$Order
+  ],
+  color = viridis::viridis(100),
+)
+
+```
+
+
+
 
 ```{r}
 #| label: fig-amr-corr-genus
@@ -752,7 +853,60 @@ pheatmap(
   cormat_genus[
     rownames(cormat_genus) %in% rank_enterobacterales_genus$Genus,
     !dimnames(cormat_genus)[[1]] %in% rank_enterobacterales_genus$Genus
-  ]
+  ],
+  color = viridis::viridis(100),
+)
+
+
+
+```
+
+
+
+```{r}
+#| label: fig-amr-corr-genus2
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene subclass and genus abundance" 
+#| fig.width: 12
+#| fig.height: 12
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+otu_r_df |>
+  filter(Order == "Enterobacterales") |>
+  group_by(name, pid, arm, visit, Genus) |>
+  summarise(value = sum(value)) |>
+  filter(Genus %in% rank_enterobacterales_genus$Genus, Genus != "") |>
+  filter(Genus != "") |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Genus, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat_genus
+
+
+
+rownames(cormat_genus) <- cormat_genus$name
+
+cormat_genus <- cor(select(cormat_genus, -name), method = "spearman")
+
+pheatmap(
+  cormat_genus[
+    rownames(cormat_genus) %in% rank_enterobacterales_genus$Genus,
+    !dimnames(cormat_genus)[[1]] %in% rank_enterobacterales_genus$Genus
+  ],
+  color = viridis::viridis(100),
 )
 
 
