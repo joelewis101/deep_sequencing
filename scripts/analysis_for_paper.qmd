@@ -1,0 +1,854 @@
+---
+title: "DASSIM deep sequence analysis: plots and tables for publication"
+date: today
+date-format: "D MMMM YYYY"
+author: Joe Lewis
+format:
+  html:
+    toc: true
+    embed-resources: true
+engine: knitr
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Taxonomy
+
+
+```{r} 
+#| label: fig-fig1
+#| fig-cap: "Changes in alpha and beta diversity over time; (A) Shannon Diversity stratified by study arm and visit; (B-C) parameters from modelling Shannon Diversity as a function of antimicrobial exposure. Alpha = magnitude of within-participant correlation, length scale = decay parameter of within participant correlation (on standardised time scale, 1 unit = 55 days), beta_0 = model population intercept, tau = decay constant of effect of antimicrobial exposure (on standardised time scale, 1 unit = 55 days). Antimicrobial/hospitalisation parameters can be interpreted as the change in mean Shannon Diversity given exposre; (D) simulated mean Shannon Diversity for hospitalisation (10 days) and antimicrobial exposure (7days) with different antimicrobials; (E) Principal coordinate plot of all-against-all Bray Curtis dissimilarity (beta diversity) with 95% confidence intervals assumng student T distibution stratified by study arm; (F) Within-participant Bray-Curtis dissimilarity to baseline sample, stratified by arm, showing that participants admitted to hospital and exposed to antimicrobials have persisent changes in beta diversity over six months, compared to community controls"
+#| fig.width: 11
+#| fig.height: 11
+
+library(tidyverse)
+library(phyloseq)
+library(here)
+library(blantyreESBL)
+library(microViz)
+library(janitor)
+library(cmdstanr)
+library(bayesplot)
+library(patchwork)
+library(pheatmap)
+library(ggpubr)
+library(viridis)
+
+biom <- import_biom(here("data_raw/vivien_taxonomy_reports/table.biom"))
+
+samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
+
+# add metadata
+biom <-
+  ps_join(biom,
+    blantyreESBL::btESBL_stoolESBL |>
+      select(lab_id, pid, arm, visit, ESBL) |>
+      mutate(arm = as.character(arm)) |>
+      left_join(
+        btESBL_participants |>
+          transmute(
+            pid = pid,
+            abx = recieved_prehosp_ab,
+            visit = 0
+          ),
+        by = join_by(pid, visit)
+      ),
+    match_sample_names = "lab_id"
+  )
+
+# mung headings
+biom@tax_table@.Data <-
+  substring(biom@tax_table@.Data, 4)
+
+colnames(biom@tax_table@.Data) <-
+  c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+
+# filter homo sapients / streptophyta
+
+
+taxa_to_filter <-
+  c(
+    biom@tax_table@.Data |>
+      as.data.frame() |>
+      filter(grepl("sapiens", Species)) |>
+      rownames(),
+    biom@tax_table@.Data |>
+      as.data.frame() |>
+      filter(if_any(everything(), ~ grepl("Streptophyta", .x))) |>
+      rownames()
+  )
+
+biom <- prune_taxa(!taxa_names(biom) %in% taxa_to_filter, biom)
+
+# remove those with low reads
+biom <-
+  prune_samples(
+    !sample_names(biom) %in% samples_to_drop,
+    biom
+  )
+
+
+biom_bact <- subset_taxa(biom, Kingdom == "Bacteria")
+
+biom_bact_r <- transform_sample_counts(biom_bact, function(x) x / sum(x))
+
+biom_r <- transform_sample_counts(biom, function(x) x / sum(x))
+
+otu_r_df <-
+  biom_bact_r@tax_table@.Data |>
+  as_tibble(rownames = "tax_id") |>
+  left_join(
+    biom_bact_r@otu_table@.Data |>
+      as_tibble(rownames = "tax_id"),
+    by = join_by(tax_id)
+  ) |>
+  pivot_longer(-c(tax_id, Kingdom, Phylum, Class, Order, Family, Genus, Species)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(lab_id, pid, arm, visit) |>
+      # mutate(arm = as.character(arm)) |>
+      left_join(
+        btESBL_participants |>
+          transmute(
+            pid = pid,
+            admission_abx = recieved_prehosp_ab,
+            visit = 0
+          ),
+        by = join_by(pid, visit)
+      ),
+    by = join_by(name == lab_id)
+  ) |>
+  filter(!is.na(visit)) |>
+  filter(!name %in% toupper(samples_to_drop))
+
+# alpha diversity
+
+
+exps <-
+  btESBL_exposures |>
+  select(-died) |>
+  pivot_longer(-c(pid, assess_type)) |>
+  filter(value == 1) |>
+  group_by(pid, name) |>
+  summarise(
+    start = min(assess_type),
+    end = max(assess_type)
+  )
+
+p_1a <-
+  estimate_richness(biom, measures = "Shannon") |>
+  as_tibble(rownames = "lab_id") |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(lab_id, pid, arm, visit, t),
+    by = join_by(lab_id)
+  ) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised, Antibiotic",
+      arm == 2 ~ "Hospitalised, No antibiotic",
+      arm == 3 ~ "Community, No antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised, Antibiotic", "Hospitalised, No antibiotic",
+      "Community, No antibiotic"
+    ))
+  ) |>
+  ggplot(aes(visit, Shannon, group = interaction(visit, arm), fill = arm, color = arm)) +
+  geom_boxplot(
+    alpha = 0.5, position = position_dodge2(preserve = "single"),
+    key_glyph = "polygon"
+  ) +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() +
+  guides(fill = guide_legend(override.aes = list(alpha = 0.5))) +
+  theme_bw() +
+  labs(y = "Shannon Diversity", x = "Study visit", color = "Study Arm", fill = "Study Arm")
+
+
+# load models
+
+d <- read_rds(here("data_processed/diversity_mod_draws.rda"))
+
+p_1b <-
+  mcmc_intervals_data(d, regex_pars = "alpha|length|beta|tau", prob_outer = 0.95) |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(
+    parameter = case_when(
+      parameter == "beta[1]" ~ "Ceftriaxone",
+      parameter == "beta[2]" ~ "Hospitalisation",
+      parameter == "beta[3]" ~ "Cotrimoxazole",
+      parameter == "beta[4]" ~ "Ciprofloxacin",
+      parameter == "beta[5]" ~ "Amoxicillin",
+      TRUE ~ parameter
+    )
+  ) |>
+  ggplot(aes(fct_rev(fct_reorder(parameter, m)), m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar(width = 0) +
+  coord_flip() +
+  theme_bw() +
+  labs(y = "Parameter Value", x = "Parameter") +
+  geom_hline(yintercept = 0, linetype = "dotted")
+
+p_1c <-
+  mcmc_intervals_data(d, regex_pars = "alpha|length|beta|tau", prob_outer = 0.95) |>
+  filter(!grepl("beta\\[", parameter)) |>
+  mutate(
+    parameter = case_when(
+      parameter == "beta[1]" ~ "Ceftriaxone",
+      parameter == "beta[2]" ~ "Hospitalisation",
+      parameter == "beta[3]" ~ "Cotrimoxazole",
+      parameter == "beta[4]" ~ "Ciprofloxacin",
+      parameter == "beta[5]" ~ "Amoxicillin",
+      TRUE ~ parameter
+    )
+  ) |>
+  ggplot(aes(fct_rev(fct_reorder(parameter, m)), m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar(width = 0) +
+  coord_flip() +
+  theme_bw() +
+  labs(y = "Parameter Value", x = "Parameter")
+# geom_hline(yintercept = 0 , linetype = "dotted")
+
+
+# simulations
+
+sim_diversity <- function(mod_draws, exposure_var = "ceftriaxone",
+                          runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7,
+                          t_scale_factor = 55.25) {
+  # mod_draws = list of draws frommodel fits
+
+  d <- mod_draws
+
+  res_post <-
+    d[, , dimnames(d)[[3]][grepl("beta|tau|sigma", dimnames(d)[[3]])]] |>
+    as_tibble(rownames = "itr") |>
+    pivot_longer(-itr) |>
+    mutate(chain = str_extract(name, "[0-9]")) |>
+    mutate(var = gsub("[1-4]\\.", "", name)) |>
+    select(-name) |>
+    pivot_wider(id_cols = c(itr, chain), names_from = var, values_from = value) |>
+    janitor::clean_names()
+
+  generate_coef <- function(cov, tau) {
+    coef <-
+      if (cov == 0) {
+        return(0)
+      } else if (cov > 0) {
+        return(1)
+      } else if (cov < 0) {
+        return(exp(cov / (tau * t_scale_factor)))
+      }
+  }
+  # runin = 7
+  # t_max = 100
+  # b1_exp <- 7
+  # b2_exp <- 10
+
+  if (exposure_var == "ceftriaxone") {
+    cov_beta_1 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_1 <- 0
+  }
+  if (exposure_var == "cotrimoxazole") {
+    cov_beta_3 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_3 <- 0
+  }
+  if (exposure_var == "ciprofloxacin") {
+    cov_beta_4 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_4 <- 0
+  }
+  if (exposure_var == "amoxicillin") {
+    cov_beta_5 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_5 <- 0
+  }
+
+  sim_df <-
+    bind_rows(
+      tibble(
+        t = seq(-runin, 0, 1),
+        cov_beta_1 = 0,
+        cov_beta_2 = 0,
+        cov_beta_3 = 0,
+        cov_beta_4 = 0,
+        cov_beta_5 = 0
+      ),
+      tibble(
+        t = 1:t_max
+      ) |>
+        mutate(
+          cov_beta_1 = cov_beta_1,
+          cov_beta_2 = c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1)),
+          cov_beta_3 = cov_beta_3,
+          cov_beta_4 = cov_beta_4,
+          cov_beta_5 = cov_beta_5
+        )
+    )
+
+  if (b2_exp == 0) {
+    sim_df$cov_beta_2 <- 0
+  }
+
+  sim_df <-
+    sim_df |>
+    cross_join(res_post) |>
+    rowwise() |>
+    mutate(
+      pr =
+        beta_0 +
+          beta_1 * generate_coef(cov_beta_1, tau) +
+          beta_2 * generate_coef(cov_beta_2, tau) +
+          beta_3 * generate_coef(cov_beta_3, tau) +
+          beta_4 * generate_coef(cov_beta_4, tau) +
+          beta_5 * generate_coef(cov_beta_5, tau),
+      exposure = exposure_var,
+    )
+
+  return(sim_df)
+}
+
+sim_df <-
+  bind_rows(
+    sim_diversity(d, exposure = "ceftriaxone", t_max = 100),
+    sim_diversity(d, exposure = "ciprofloxacin", t_max = 100),
+    sim_diversity(d, exposure = "cotrimoxazole", t_max = 100),
+    sim_diversity(d, exposure = "amoxcicillin", t_max = 100),
+    sim_diversity(d, exposure = "no antibiotic", t_max = 100),
+    sim_diversity(d, exposure = "community", b2_exp = 0, t_max = 100)
+  )
+
+p_1d <-
+  sim_df |>
+  group_by(t, exposure) |>
+  summarise(
+    diversity = median(pr),
+    lci = quantile(pr, 0.025),
+    uci = quantile(pr, 0.975)
+  ) |>
+  mutate(
+    exposure = case_when(
+      grepl("community", exposure) ~ "Community\nNo Antibiotic",
+      grepl("antibiotic", exposure) ~ "Hospitalised\nNo Antibiotic",
+      grepl("amox", exposure) ~ "Hospitalised\nAmoxicillin",
+      grepl("cotrim", exposure) ~ "Hospitalised\nCotrimoxazole",
+      grepl("cipro", exposure) ~ "Hospitalised\nCiprofloxacin",
+      grepl("ceft", exposure) ~ "Hospitalised\nCeftriaxone"
+    ),
+    exposure =
+      factor(exposure,
+        levels = c(
+          "Community\nNo Antibiotic",
+          "Hospitalised\nNo Antibiotic",
+          "Hospitalised\nAmoxicillin",
+          "Hospitalised\nCotrimoxazole",
+          "Hospitalised\nCiprofloxacin",
+          "Hospitalised\nCeftriaxone"
+        )
+      )
+  ) |>
+  ggplot(aes(t, diversity, ymin = lci, ymax = uci)) +
+  geom_line() +
+  geom_ribbon(color = NA, alpha = 0.3) +
+  facet_wrap(~exposure, nrow = 1) +
+  xlim(c(-1, 50)) +
+  theme_bw() +
+  labs(x = "Time (days)", y = "Shannon Diversity")
+
+
+# beta diversity
+
+
+distbiom <- distance(otu_table(biom_r), method = "bray")
+
+pcoa_biom <-
+  ordinate(otu_table(biom_r), "PCoA", "bray")
+
+
+
+pcoa_df <-
+  plot_ordination(biom_r, pcoa_biom, color = "ESBL", justDF = TRUE)
+
+p_1e <-
+  pcoa_df |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised, Antibiotic",
+      arm == 2 ~ "Hospitalised, No antibiotic",
+      arm == 3 ~ "Community, No antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised, Antibiotic", "Hospitalised, No antibiotic",
+      "Community, No antibiotic"
+    ))
+  ) |>
+  ggplot(aes(Axis.1, Axis.2, color = arm, fill = arm, group = arm, shape = arm)) +
+  geom_point(key_glyph = "polygon") +
+  stat_ellipse(alpha = 0.5, geom = "polygon", show.legend = FALSE) +
+  theme_bw() +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+  guides(fill = guide_legend(override.aes = list(alpha = 0.5))) +
+  labs(
+    x = "Axis 1 [25.6%]", y = "Axis 2 [14.8%]", fill = "Study Arm", color =
+      "Study Arm", shape = "Study Arm"
+  )
+
+# pairwise dissimilarity
+
+p_1f <-
+  as.matrix(distbiom) |>
+  as.data.frame() |>
+  as_tibble(rownames = "sample_x") |>
+  pivot_longer(-sample_x, names_to = "sample_y") |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit),
+    by = join_by(sample_x == lab_id)
+  ) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit),
+    by = join_by(sample_y == lab_id),
+    suffix = c("_x", "_y")
+  ) |>
+  filter(pid_x == pid_y, sample_x != sample_y, visit_x == 0) |>
+  mutate(
+    arm_y = case_when(
+      arm_y == 1 ~ "Hospitalised, Antibiotic",
+      arm_y == 2 ~ "Hospitalised, No antibiotic",
+      arm_y == 3 ~ "Community, No antibiotic"
+    ),
+    arm_y = factor(arm_y, levels = c(
+      "Hospitalised, Antibiotic", "Hospitalised, No antibiotic",
+      "Community, No antibiotic"
+    ))
+  ) |>
+  ggplot(aes(visit_y, value,
+    color = arm_y, fill = arm_y, shape = arm_y, group =
+      interaction(arm_y, visit_y)
+  )) +
+  geom_boxplot(
+    alpha = 0.5, position = position_dodge2(preserve = "single"),
+    key_glyph = "polygon"
+  ) +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() +
+  theme_bw() +
+  # theme(legend.position = "bottom") +
+  guides(fill = guide_legend(override.aes = list(alpha = 0.5))) +
+  stat_compare_means(label = "p.format", size = 3, vjust = 1, show.legend = FALSE) +
+  labs(
+    x = "Study Visit", y = "Bray-Curtus dissimilarity\n to baseline",
+    color = "Study Arm", fill = "Study Arm", shape = "Study Arm"
+  )
+
+
+(((p_1a + (p_1b / p_1c)) / p_1d / (p_1e + p_1f)) + plot_layout(guides = "collect", heights = c(1, 0.6, 1)) & theme(legend.position = "right")) + plot_annotation(tag_levels = "A")
+
+ggsave(here("plots/fig1.pdf"), width = 11, height = 11)
+```
+
+```{r}
+#| label: fig-fig2
+#| fig-cap: "Changes in microbiome composition under antimicrobial pressure: Relative abundance of top 3 Phyla (A), top 3 Proteobacteria Orders (B) and top 3 Enterobacterales Genera (C), stratified by study arm and visit, showing higher abundance of Proteobacteria, Enterobacteales and Escherichia at visit 1 in the antibiotic exposed, corresponding to maximal antimicrobial exposure. (D) parameter values for effect of antimicrobial exposure or hoispitalisation on microbiome composition, on log scale with 95% credible intervals; parameter values > 1 correspond to an increase < 1 to a decrease. (E-F) simulated antimicrobial exposures (7 days) for a participant hospitalised for 10 days, showing proportion of Proteibacteria reads (right panel), proportion of Proteobacteria reads that are Enterobacterales (middle panel), proportion of Enterobacterales reads that are Escherichia (right panel) with 50% prediction intervals."
+#| fig.width: 15
+#| fig.height: 17
+
+rank_bacterial_phyla <-
+  otu_r_df |>
+  group_by(Phylum, name) |>
+  summarise(value = sum(value)) |>
+  group_by(Phylum) |>
+  summarise(median_relative_abundance = median(value)) |>
+  arrange(-median_relative_abundance)
+
+p_2a <-
+otu_r_df |>
+  group_by(name, pid, arm, visit, Phylum) |>
+  summarise(value = sum(value)) |>
+  filter(Phylum %in% rank_bacterial_phyla$Phylum[1:3]) |>
+  mutate(Phylum = factor(Phylum, levels = rev(rank_bacterial_phyla$Phylum))) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    )),
+  ) |>
+  ggplot(aes(visit, value, fill = arm, color = arm, group = interaction(arm, visit))) +
+  geom_boxplot(
+    outliers = FALSE,
+    alpha = 0.5, position = position_dodge2(preserve = "single"),
+    key_glyph = "polygon"
+  ) +
+  # geom_point(alpha = 0.6, shape = 3, position = position_dodge2(preserve = "single"),
+  theme_bw() +
+  facet_wrap(~Phylum) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+theme(legend.position = "bottom") + 
+  labs(
+    x = "Study Visit", y = "Proportion of reads",
+    color = "Study Arm", fill = "Study Arm", shape = "Study Arm"
+  )
+
+
+rank_proteobacteria_orders <-
+  otu_r_df |>
+  filter(Phylum == "Proteobacteria") |>
+  group_by(Order, name) |>
+  summarise(value = sum(value)) |>
+  group_by(Order) |>
+  summarise(median_relative_abundance = median(value)) |>
+  arrange(-median_relative_abundance)
+
+p_2b <-
+otu_r_df |>
+  filter(Phylum == "Proteobacteria") |>
+  group_by(name, pid, arm, visit, Order) |>
+  summarise(value = sum(value)) |>
+  filter(Order %in% rank_proteobacteria_orders$Order[1:3]) |>
+  mutate(Order = factor(Order, levels = rank_proteobacteria_orders$Order)) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    )),
+  ) |>
+  ggplot(aes(visit, value, fill = arm, color = arm, group = interaction(arm, visit))) +
+  geom_boxplot(
+    outliers = FALSE,
+    alpha = 0.5, position = position_dodge2(preserve = "single"),
+    key_glyph = "polygon"
+  ) +
+  # geom_point(alpha = 0.6, shape = 3, position = position_dodge2(preserve = "single"),
+  theme_bw() +
+  facet_wrap(~Order) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+theme(legend.position = "bottom") + 
+  labs(
+    x = "Study Visit", y = "Proportion of\n Proteobacteria reads",
+    color = "Study Arm", fill = "Study Arm", shape = "Study Arm"
+  )
+
+
+rank_enterobacterales_genus <-
+  otu_r_df |>
+  filter(Order == "Enterobacterales") |>
+  group_by(Genus, name) |>
+  summarise(value = sum(value)) |>
+  group_by(Genus) |>
+  summarise(median_relative_abundance = median(value)) |>
+  arrange(-median_relative_abundance)
+
+p_2c <-
+otu_r_df |>
+  filter(Order == "Enterobacterales") |>
+  group_by(name, pid, arm, visit, Genus) |>
+  summarise(value = sum(value)) |>
+  filter(Genus %in% rank_enterobacterales_genus$Genus[1:4]) |>
+  mutate(Genus = factor(Genus, levels = rank_enterobacterales_genus$Genus)) |>
+  filter(Genus != "") |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    )),
+  ) |>
+  ggplot(aes(visit, value, fill = arm, color = arm, group = interaction(arm, visit))) +
+  geom_boxplot(
+    outliers = FALSE,
+    alpha = 0.5, position = position_dodge2(preserve = "single"),
+    key_glyph = "polygon"
+  ) +
+  # geom_point(alpha = 0.6, shape = 3, position = position_dodge2(preserve = "single"),
+  theme_bw() +
+  facet_wrap(~Genus) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+theme(legend.position = "bottom") + 
+  labs(
+    x = "Study Visit", y = "Proportion of\n Enterobacterales reads",
+    color = "Study Arm", fill = "Study Arm", shape = "Study Arm"
+  )
+
+
+# load models
+
+mod_sum_df <- 
+  read_rds(here("data_processed/gp_taxonomy_mod_sum_df.rda"))
+
+
+p_2d <-
+mod_sum_df |>
+  mutate(taxa = gsub("_.*$", "", outcome_var)) |>
+filter(grepl("beta", parameter), parameter != "beta_0") |>
+  mutate(
+    parameter = case_when(
+      parameter == "beta[1]" ~ "Ceftriaxone",
+      parameter == "beta[2]" ~ "Hospitalisation",
+      parameter == "beta[3]" ~ "Cotrimoxazole",
+      parameter == "beta[4]" ~ "Ciprofloxacin",
+      parameter == "beta[5]" ~ "Amoxicillin",
+    TRUE ~ parameter),
+    parameter = factor(parameter,
+      levels = c("Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole", "Amoxicillin",
+  "Hospitalisation")),
+    taxa = str_to_title(taxa),
+    taxa = factor(taxa, levels = c("Phylum", "Order", "Genus"))
+) |>
+  ggplot(aes(outcome_var, m, color = taxa, ymin = ll, ymax = hh)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.5)) +
+  coord_flip() +
+  facet_grid(parameter ~ taxa, scales = "free") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+theme_bw() +
+scale_color_manual(values = viridis_pal(option = "D")(4)[1:3]) +
+labs(y = "Parameter value", x = "Taxa", color = "")
+
+
+# (p_2a / p_2b / p_2c + plot_layout(guides = "collect") & theme(legend.position = "right")) | p_2d + plot_layout(heights = c(0.25,0.25, 0.25, 3)) + plot_annotation(tag_levels = "A")
+
+
+# simulations
+
+tax_mod_sum_df <-
+  read_rds(here("data_processed/gp_taxonomy_mod_sum_df.rda"))
+
+tax_mod_draws <-
+  read_rds(here("data_processed/gp_taxonomy_drawslistout.rda"))
+
+tax_outcome_vars <-
+  read_rds(here("data_processed/gp_taxonomy_outcome_vars.rda"))
+
+
+
+tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars,
+                                  runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7,
+                                  t_scale_factor = 55.25) {
+  # outcome_var = string, outcome AMR subclass
+  # exposure_var = name of covariate from model
+  # exposure_string = human readable string of exposure for plots
+  # mod_draws = list of draws frommodel fits
+  # outcome_vars = list of outcome vars saved from model fit
+  if (length(outcome_var) > 1 | length(exposure_var) > 1) {
+    stop("more than one outcome or exposure passed to simulate_exposure")
+  }
+
+  if (!exposure_var %in% c("ceftriaxone", "cotrimoxazole", "ciprofloxacin", "amoxicillin")) {
+    stop("exposure var not found")
+  }
+  if (!outcome_var %in% outcome_vars) {
+    stop("outcome var not found")
+  }
+
+  current_outcome_pos <- which(outcome_vars == outcome_var)
+
+  d <- mod_draws[[current_outcome_pos]]
+
+  res_post <-
+    d[, , dimnames(d)[[3]][grepl("beta|tau|phi", dimnames(d)[[3]])]] |>
+    as_tibble(rownames = "itr") |>
+    pivot_longer(-itr) |>
+    mutate(chain = str_extract(name, "[0-9]")) |>
+    mutate(var = gsub("[1-4]\\.", "", name)) |>
+    select(-name) |>
+    pivot_wider(id_cols = c(itr, chain), names_from = var, values_from = value) |>
+    janitor::clean_names()
+
+  generate_coef <- function(cov, tau) {
+    coef <-
+      if (cov == 0) {
+        return(0)
+      } else if (cov > 0) {
+        return(1)
+      } else if (cov < 0) {
+        return(exp(cov / (tau*t_scale_factor)))
+      }
+  }
+  # runin = 7
+  # t_max = 100
+  # b1_exp <- 7
+  # b2_exp <- 10
+
+  if (exposure_var == "ceftriaxone") {
+    cov_beta_1 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_1 <- 0
+  }
+
+  if (exposure_var == "cotrimoxazole") {
+    cov_beta_3 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_3 <- 0
+  }
+  if (exposure_var == "ciprofloxacin") {
+    cov_beta_4 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_4 <- 0
+  }
+  if (exposure_var == "amoxicillin") {
+    cov_beta_5 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_5 <- 0
+  }
+
+  sim_df <-
+    bind_rows(
+      tibble(
+        t = seq(-runin, 0, 1),
+        cov_beta_1 = 0,
+        cov_beta_2 = 0,
+        cov_beta_3 = 0,
+        cov_beta_4 = 0,
+        cov_beta_5 = 0
+      ),
+      tibble(
+        t = 1:t_max
+      ) |>
+        mutate(
+          cov_beta_1 = cov_beta_1,
+          cov_beta_2 = c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1)),
+          cov_beta_3 = cov_beta_3,
+          cov_beta_4 = cov_beta_4,
+          cov_beta_5 = cov_beta_5
+        )
+    ) |>
+    cross_join(res_post) |>
+    rowwise() |>
+    mutate(
+      reads =
+        exp(
+          beta_0 +
+            beta_1 * generate_coef(cov_beta_1, tau) +
+            beta_2 * generate_coef(cov_beta_2, tau) +
+            beta_3 * generate_coef(cov_beta_3, tau) +
+            beta_4 * generate_coef(cov_beta_4, tau) +
+            beta_5 * generate_coef(cov_beta_5, tau)
+          # log(2.5e7)
+        ),
+      exposure = exposure_var,
+      outcome = outcome_var
+    )
+
+  return(sim_df)
+}
+
+
+tax_simulate_exposure_multi <- function(outcome_var_to_sim, exposure_vars, mod_draws, outcome_vars,
+                                        runin = 7, t_max = 30, b2_exp = 10, cov_exp = 7,
+                                        t_scale_factor = 55.25) {
+  i <- 1
+  listout <- list()
+  for (outcome_var in outcome_var_to_sim) {
+    for (exposure_var in exposure_vars) {
+      listout[[i]] <- tax_simulate_exposure(
+        exposure_var = exposure_var,
+        outcome_var = outcome_var,
+        mod_draws = mod_draws,
+        outcome_vars = outcome_vars,
+        runin = runin,
+        t_max = t_max,
+        b2_exp = b2_exp,
+        cov_exp = cov_exp,
+        t_scale_factor = t_scale_factor
+      )
+      i <- i + 1
+    }
+  }
+
+  return(bind_rows(listout))
+}
+
+
+df2 <-
+  tax_simulate_exposure_multi(
+    exposure_var = c("ceftriaxone", "amoxicillin", "cotrimoxazole", "ciprofloxacin"),
+    outcome_var = c("phylum_Proteobacteria", "order_Enterobacterales", "genus_Escherichia"),
+    mod_draws = tax_mod_draws,
+    outcome_vars = tax_outcome_vars
+  )
+
+p_2f <-
+df2 |>
+  filter(exposure %in% c("ceftriaxone", "cotrimoxazole")) |>
+  group_by(t, exposure, outcome) |>
+  mutate(exposure = factor(exposure, levels = c("ceftriaxone", "amoxicillin", "cotrimoxazole"))) |>
+  summarise(
+    med = median(reads),
+    lci = quantile(reads, 0.25),
+    uci = quantile(reads, 0.75)
+  ) |>
+  ggplot(aes(t, med,
+    ymin = lci, ymax = uci,
+    linetype = exposure, color = exposure, fill = exposure)
+  ) +
+  geom_line() +
+  geom_ribbon(color = NA, alpha = 0.3) +
+  xlim(c(-4, 30)) +
+  facet_grid(~outcome, scales = "free") +
+  theme_bw() +
+  labs(y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
+"Exposure") +
+theme(legend.position = "bottom") +
+scale_color_manual(values = viridis_pal(option = "C")(6)[c(2,5)]) +
+scale_fill_manual(values = viridis_pal(option = "C")(6)[c(2,5)])  +
+coord_cartesian(ylim = c(0, 0.7))
+
+p_2e <-
+df2 |>
+  filter(exposure %in% c("ciprofloxacin", "amoxicillin")) |>
+  group_by(t, exposure, outcome) |>
+  mutate(exposure = factor(exposure, levels = c("ceftriaxone", "ciprofloxacin", "amoxicillin", "cotrimoxazole"))) |>
+  summarise(
+    med = median(reads),
+    lci = quantile(reads, 0.25),
+    uci = quantile(reads, 0.75)
+  ) |>
+  ggplot(aes(t, med,
+    ymin = lci, ymax = uci,
+    linetype = exposure, color = exposure, fill = exposure)
+  ) +
+  geom_line() +
+  geom_ribbon(color = NA, alpha = 0.3) +
+  xlim(c(-4, 30)) +
+  facet_wrap(~outcome, scales = "free") +
+  theme_bw() +
+  labs(y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
+"Exposure") +
+theme(legend.position = "bottom") +
+scale_color_manual(values = viridis_pal(option = "C")(6)[c(1,3)]) +
+scale_fill_manual(values = viridis_pal(option = "C")(6)[c(1,3)])
+
+(((p_2a / p_2b / p_2c) | p_2d) / (p_2f + p_2e) +  plot_layout(heights = c(4,0.6))) + plot_annotation(tag_levels = "A")
+
+
+ggsave(here("plots/fig2.pdf"), width = 15, height = 17)
+
+```
