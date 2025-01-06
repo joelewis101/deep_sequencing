@@ -54,10 +54,10 @@ df <-
   pivot_longer(-c(class, subclass, gene_symbol)) |>
   mutate(
     name =
-    str_extract(
-      name,
-      "sample_[0-9]{1,3}_(.*)_(:?uncorrected_amr|amr)",
-      group = 1
+      str_extract(
+        name,
+        "sample_[0-9]{1,3}_(.*)_(:?uncorrected_amr|amr)",
+        group = 1
       )
   ) |>
   mutate(name = gsub("_uncorrected", "", name)) |>
@@ -80,51 +80,56 @@ df2 <-
     by = c("name" = "lab_id")
   )
 
-df2 <- 
+df2 <-
   df2 |>
   filter(!name %in% tolower(samples_to_drop))
 
 df <-
   df |>
-    select(!matches(paste(tolower(samples_to_drop), collapse = "|")))
+  select(!matches(paste(tolower(samples_to_drop), collapse = "|")))
 included_participants <-
   df2 |>
-    pull(pid) |>
-    unique()
+  pull(pid) |>
+  unique()
 
 btESBL_participants |>
   filter(pid %in% included_participants) |>
   mutate(watersource = if_else(grepl("Surface|Unprotected", watersource), "Unprotected",
-"Protected")) |>
+    "Protected"
+  )) |>
   select(calc_age, ptsex, keepanim, watersource, arm, hivstatus, hivonart, hivcpt) |>
   blantyreSepsis::pretty_tbl_df() |>
   filter(!levels %in% c("Male", "No", "Protected")) |>
-  mutate(variable =
-    case_when(
-      levels == 1 ~ "Hospitalised/antibiotic exposed",
-      levels == 2 ~ "Hospitalised/antibiotic unexposed",
-      levels == 3 ~ "Community/antibiotic unexposed",
-      variable == "calc_age" ~ "Age (years) median (IQR)",
-      variable == "ptsex" ~ "Female sex",
-      variable == "keepanim" ~ "Animals at home",
-      variable == "watersource" ~ "Unprotected water source",
-      grepl("eactive|Unknown", levels) ~ levels, 
-      variable == "hivonart" ~ "Of PLWHIV\nCurrent ART",
-      variable == "hivcpt" ~ "OF PLWHIV\nCurrent CPT",
-      TRUE ~ variable)) |>
-    select(-levels) |>
+  mutate(
+    variable =
+      case_when(
+        levels == 1 ~ "Hospitalised/antibiotic exposed",
+        levels == 2 ~ "Hospitalised/antibiotic unexposed",
+        levels == 3 ~ "Community/antibiotic unexposed",
+        variable == "calc_age" ~ "Age (years) median (IQR)",
+        variable == "ptsex" ~ "Female sex",
+        variable == "keepanim" ~ "Animals at home",
+        variable == "watersource" ~ "Unprotected water source",
+        grepl("eactive|Unknown", levels) ~ levels,
+        variable == "hivonart" ~ "Of PLWHIV\nCurrent ART",
+        variable == "hivcpt" ~ "OF PLWHIV\nCurrent CPT",
+        TRUE ~ variable
+      )
+  ) |>
+  select(-levels) |>
   kbl(caption = "Characteristics of included participants") |>
   kable_classic(full_width = FALSE) |>
-  pack_rows("Demographics", 1,4) |>
-  pack_rows("Study Arm", 5,7) |>
-  pack_rows("HIV status", 8,12) 
+  pack_rows("Demographics", 1, 4) |>
+  pack_rows("Study Arm", 5, 7) |>
+  pack_rows("HIV status", 8, 12)
 ```
 
 
 ```{r}
 #| label: tbl-abexp
 
-c("Amoxicillin" = "amoxy",
+c(
+  "Amoxicillin" = "amoxy",
   "Gentamicin" = "genta",
   "Azithromycin" = "azithro",
   "TB therapy" = "tb",
@@ -146,61 +151,71 @@ c("Amoxicillin" = "amoxy",
   "Flucloxacillin" = "fluclox",
   "Metronidazole" = "metro",
   "Streptomycin" = "strepto"
-  ) -> rename_lookup
+) -> rename_lookup
 
 
 
 
-  
-  
+
+
 
 btESBL_exposures |>
   filter(pid %in% included_participants) |>
-  select(-c(assess_type, died, hosp))  |>
+  select(-c(assess_type, died, hosp)) |>
   rename(!!!rename_lookup) |>
-  pivot_longer(-pid) |> 
+  pivot_longer(-pid) |>
   group_by(pid, name) |>
   summarise(exposed = any(value == 1)) |>
   group_by(name) |>
   summarise(n = sum(exposed), N = length(exposed)) |>
   arrange(desc(n)) |>
   filter(n > 0) |>
-  mutate(perc = paste0(blantyreSepsis::sp_dc(100*n/N, 0),"%"),
-  exposed = paste0(n,"/", N, " (", perc,")")) |>
-left_join(
-btESBL_exposures |> 
-  filter(pid %in% included_participants) |>
-  expand(assess_type, pid) |>
-  left_join(btESBL_exposures,
-    by = join_by(pid == pid, assess_type == assess_type)) |>
-  rename(!!!rename_lookup) |>
-  arrange(pid,assess_type) |>
-  group_by(pid) |>
-  fill(everything()) |>
-  select(-died) |>
-  pivot_longer(-c(pid, assess_type)) |>
-  group_by(name, pid) |>
-  summarise(duration = sum(value, na.rm = TRUE)) |>
-  group_by(name) |>
-  filter(duration !=0) |>
-  summarise(median = median(duration),
-    lci = quantile(duration, 0.25),
-    uci = quantile(duration, 0.75)) |>
-  transmute(agent = name, 
-    exposure = paste0(median, " (",lci,"-",uci,")")),
-    by = join_by(name == agent)) |>
+  mutate(
+    perc = paste0(blantyreSepsis::sp_dc(100 * n / N, 0), "%"),
+    exposed = paste0(n, "/", N, " (", perc, ")")
+  ) |>
+  left_join(
+    btESBL_exposures |>
+      filter(pid %in% included_participants) |>
+      expand(assess_type, pid) |>
+      left_join(btESBL_exposures,
+        by = join_by(pid == pid, assess_type == assess_type)
+      ) |>
+      rename(!!!rename_lookup) |>
+      arrange(pid, assess_type) |>
+      group_by(pid) |>
+      fill(everything()) |>
+      select(-died) |>
+      pivot_longer(-c(pid, assess_type)) |>
+      group_by(name, pid) |>
+      summarise(duration = sum(value, na.rm = TRUE)) |>
+      group_by(name) |>
+      filter(duration != 0) |>
+      summarise(
+        median = median(duration),
+        lci = quantile(duration, 0.25),
+        uci = quantile(duration, 0.75)
+      ) |>
+      transmute(
+        agent = name,
+        exposure = paste0(median, " (", lci, "-", uci, ")")
+      ),
+    by = join_by(name == agent)
+  ) |>
   transmute(
     Antimicrobial = name,
     Exposed = exposed,
-    Duration = exposure) |>
-  kbl(caption = "Antimicrobial exposures in the cohort",
-  col.names = 
-  c("Antimicrobial",
-    "Number Exposed", "Days of exposure\n(Median [IQR])")
-      )|>
+    Duration = exposure
+  ) |>
+  kbl(
+    caption = "Antimicrobial exposures in the cohort",
+    col.names =
+      c(
+        "Antimicrobial",
+        "Number Exposed", "Days of exposure\n(Median [IQR])"
+      )
+  ) |>
   kable_classic(full_width = FALSE)
-
-
 ```
 
 
@@ -646,7 +661,7 @@ rank_bacterial_phyla <-
   arrange(-median_relative_abundance)
 
 p_2a <-
-otu_r_df |>
+  otu_r_df |>
   group_by(name, pid, arm, visit, Phylum) |>
   summarise(value = sum(value)) |>
   filter(Phylum %in% rank_bacterial_phyla$Phylum[1:3]) |>
@@ -674,7 +689,7 @@ otu_r_df |>
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   scale_color_viridis_d() +
   scale_fill_viridis_d() +
-theme(legend.position = "bottom") + 
+  theme(legend.position = "bottom") +
   labs(
     x = "Study Visit", y = "Proportion of reads",
     color = "Study Arm", fill = "Study Arm", shape = "Study Arm"
@@ -691,7 +706,7 @@ rank_proteobacteria_orders <-
   arrange(-median_relative_abundance)
 
 p_2b <-
-otu_r_df |>
+  otu_r_df |>
   filter(Phylum == "Proteobacteria") |>
   group_by(name, pid, arm, visit, Order) |>
   summarise(value = sum(value)) |>
@@ -720,7 +735,7 @@ otu_r_df |>
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   scale_color_viridis_d() +
   scale_fill_viridis_d() +
-theme(legend.position = "bottom") + 
+  theme(legend.position = "bottom") +
   labs(
     x = "Study Visit", y = "Proportion of\n Proteobacteria reads",
     color = "Study Arm", fill = "Study Arm", shape = "Study Arm"
@@ -737,7 +752,7 @@ rank_enterobacterales_genus <-
   arrange(-median_relative_abundance)
 
 p_2c <-
-otu_r_df |>
+  otu_r_df |>
   filter(Order == "Enterobacterales") |>
   group_by(name, pid, arm, visit, Genus) |>
   summarise(value = sum(value)) |>
@@ -767,7 +782,7 @@ otu_r_df |>
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   scale_color_viridis_d() +
   scale_fill_viridis_d() +
-theme(legend.position = "bottom") + 
+  theme(legend.position = "bottom") +
   labs(
     x = "Study Visit", y = "Proportion of\n Enterobacterales reads",
     color = "Study Arm", fill = "Study Arm", shape = "Study Arm"
@@ -776,14 +791,14 @@ theme(legend.position = "bottom") +
 
 # load models
 
-mod_sum_df <- 
+mod_sum_df <-
   read_rds(here("data_processed/gp_taxonomy_mod_sum_df.rda"))
 
 
 p_2d <-
-mod_sum_df |>
+  mod_sum_df |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
-filter(grepl("beta", parameter), parameter != "beta_0") |>
+  filter(grepl("beta", parameter), parameter != "beta_0") |>
   mutate(
     parameter = case_when(
       parameter == "beta[1]" ~ "Ceftriaxone",
@@ -791,22 +806,26 @@ filter(grepl("beta", parameter), parameter != "beta_0") |>
       parameter == "beta[3]" ~ "Cotrimoxazole",
       parameter == "beta[4]" ~ "Ciprofloxacin",
       parameter == "beta[5]" ~ "Amoxicillin",
-    TRUE ~ parameter),
+      TRUE ~ parameter
+    ),
     parameter = factor(parameter,
-      levels = c("Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole", "Amoxicillin",
-  "Hospitalisation")),
+      levels = c(
+        "Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole", "Amoxicillin",
+        "Hospitalisation"
+      )
+    ),
     taxa = str_to_title(taxa),
     taxa = factor(taxa, levels = c("Phylum", "Order", "Genus"))
-) |>
+  ) |>
   ggplot(aes(outcome_var, m, color = taxa, ymin = ll, ymax = hh)) +
   geom_point(position = position_dodge(width = 0.5)) +
   geom_errorbar(width = 0, position = position_dodge(width = 0.5)) +
   coord_flip() +
   facet_grid(parameter ~ taxa, scales = "free") +
   geom_hline(yintercept = 0, linetype = "dashed") +
-theme_bw() +
-scale_color_manual(values = viridis_pal(option = "D")(4)[1:3]) +
-labs(y = "Parameter value", x = "Taxa", color = "")
+  theme_bw() +
+  scale_color_manual(values = viridis_pal(option = "D")(4)[1:3]) +
+  labs(y = "Parameter value", x = "Taxa", color = "")
 
 
 # (p_2a / p_2b / p_2c + plot_layout(guides = "collect") & theme(legend.position = "right")) | p_2d + plot_layout(heights = c(0.25,0.25, 0.25, 3)) + plot_annotation(tag_levels = "A")
@@ -865,7 +884,7 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
       } else if (cov > 0) {
         return(1)
       } else if (cov < 0) {
-        return(exp(cov / (tau*t_scale_factor)))
+        return(exp(cov / (tau * t_scale_factor)))
       }
   }
   # runin = 7
@@ -880,9 +899,9 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
   }
 
   if (b2_exp == 0) {
-     cov_beta_2 <- 0
+    cov_beta_2 <- 0
   } else {
-     cov_beta_2 <- c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1))
+    cov_beta_2 <- c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1))
   }
 
   if (exposure_var == "cotrimoxazole") {
@@ -978,7 +997,7 @@ df_taxsim <-
   )
 
 p_2f <-
-df_taxsim |>
+  df_taxsim |>
   filter(exposure %in% c("ceftriaxone", "cotrimoxazole")) |>
   group_by(t, exposure, outcome) |>
   mutate(exposure = factor(exposure, levels = c("ceftriaxone", "amoxicillin", "cotrimoxazole"))) |>
@@ -989,21 +1008,23 @@ df_taxsim |>
   ) |>
   ggplot(aes(t, med,
     ymin = lci, ymax = uci,
-    linetype = exposure, color = exposure, fill = exposure)
-  ) +
+    linetype = exposure, color = exposure, fill = exposure
+  )) +
   geom_line() +
   geom_ribbon(color = NA, alpha = 0.3) +
   xlim(c(-4, 30)) +
   facet_wrap(~outcome, scales = "free") +
   theme_bw() +
-  labs(y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
-"Exposure") +
-theme(legend.position = "bottom") +
-scale_color_manual(values = viridis_pal(option = "A")(6)[c(2,4)]) +
-scale_fill_manual(values = viridis_pal(option = "A")(6)[c(2,4)])
+  labs(
+    y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
+      "Exposure"
+  ) +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = viridis_pal(option = "A")(6)[c(2, 4)]) +
+  scale_fill_manual(values = viridis_pal(option = "A")(6)[c(2, 4)])
 
 p_2e <-
-df_taxsim |>
+  df_taxsim |>
   filter(exposure %in% c("ciprofloxacin", "amoxicillin")) |>
   group_by(t, exposure, outcome) |>
   mutate(exposure = factor(exposure, levels = c("ceftriaxone", "ciprofloxacin", "amoxicillin", "cotrimoxazole"))) |>
@@ -1014,24 +1035,25 @@ df_taxsim |>
   ) |>
   ggplot(aes(t, med,
     ymin = lci, ymax = uci,
-    linetype = exposure, color = exposure, fill = exposure)
-  ) +
+    linetype = exposure, color = exposure, fill = exposure
+  )) +
   geom_line() +
   geom_ribbon(color = NA, alpha = 0.3) +
   xlim(c(-4, 30)) +
   facet_wrap(~outcome, scales = "free") +
   theme_bw() +
-  labs(y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
-"Exposure") +
-theme(legend.position = "bottom") +
-scale_color_manual(values = viridis_pal(option = "B")(6)[c(3,5)]) +
-scale_fill_manual(values = viridis_pal(option = "B")(6)[c(3,5)])
+  labs(
+    y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
+      "Exposure"
+  ) +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = viridis_pal(option = "B")(6)[c(3, 5)]) +
+  scale_fill_manual(values = viridis_pal(option = "B")(6)[c(3, 5)])
 
-(((p_2a / p_2b / p_2c) | p_2d) / (p_2f + p_2e) +  plot_layout(heights = c(4,0.6))) + plot_annotation(tag_levels = "A")
+(((p_2a / p_2b / p_2c) | p_2d) / (p_2f + p_2e) + plot_layout(heights = c(4, 0.6))) + plot_annotation(tag_levels = "A")
 
 
 ggsave(here("plots/fig2.pdf"), width = 15, height = 17)
-
 ```
 
 ```{r} 
@@ -1051,43 +1073,43 @@ outcome_vars <-
 
 p_3a <-
   df |>
-    mutate(gene_symbol = make_clean_names(gene_symbol)) |>
-    pivot_longer(-c(gene_symbol, class, subclass)) |>
-    filter(!grepl("^nc", name)) |>
-    mutate(name = gsub("_.*$", "", name)) |>
-    left_join(
-      btESBL_stoolESBL |>
-        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
-        mutate(lab_id = tolower(lab_id)),
-      by = c("name" = "lab_id")
-    ) |>
-    mutate(class = factor(class)) |>
-    group_by(pid, visit, class) |>
-    summarise(present = any(value == 1)) |>
-    group_by(class) |>
-    summarise(
-      n_present = sum(present),
-      n_total = length(present)
-    ) |>
-    rowwise() |>
-    mutate(
-      class = str_to_title(class),
-      prop = n_present / n_total,
-      lci = binom.test(n_present, n_total)$conf.int[[1]],
-      uci = binom.test(n_present, n_total)$conf.int[[2]]
-    ) |>
-    ggplot(aes(fct_reorder(class, prop), prop, ymin = lci, ymax = uci)) +
-    geom_point(position = position_dodge(width = 0.6)) +
-    geom_errorbar(width = 0, position = position_dodge(width = 0.6)) +
-    coord_flip() +
-    theme_bw() +
-    labs(x =  "", y = "Proportion") +
-    scale_x_discrete(position = "top")
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")
+  ) |>
+  mutate(class = factor(class)) |>
+  group_by(pid, visit, class) |>
+  summarise(present = any(value == 1)) |>
+  group_by(class) |>
+  summarise(
+    n_present = sum(present),
+    n_total = length(present)
+  ) |>
+  rowwise() |>
+  mutate(
+    class = str_to_title(class),
+    prop = n_present / n_total,
+    lci = binom.test(n_present, n_total)$conf.int[[1]],
+    uci = binom.test(n_present, n_total)$conf.int[[2]]
+  ) |>
+  ggplot(aes(fct_reorder(class, prop), prop, ymin = lci, ymax = uci)) +
+  geom_point(position = position_dodge(width = 0.6)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.6)) +
+  coord_flip() +
+  theme_bw() +
+  labs(x = "", y = "Proportion") +
+  scale_x_discrete(position = "top")
 
 
 
 p_3b <-
-df |>
+  df |>
   mutate(gene_symbol = make_clean_names(gene_symbol)) |>
   pivot_longer(-c(gene_symbol, class, subclass)) |>
   filter(!grepl("^nc", name)) |>
@@ -1097,14 +1119,14 @@ df |>
   # ) |>
   right_join(
     semi_join(
-    btESBL_stoolESBL |>
-      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
-      mutate(lab_id = tolower(lab_id)),
-    df2,
-    by = join_by(lab_id == name)
-  ),
-     by = join_by(name == lab_id)
-      ) |>
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      df2,
+      by = join_by(lab_id == name)
+    ),
+    by = join_by(name == lab_id)
+  ) |>
   mutate(class = as.factor(tolower(subclass))) |>
   filter(value == 1) |>
   select(pid, name, arm, visit, class) |>
@@ -1132,7 +1154,7 @@ df |>
     uci = binom.test(n, N)$conf.int[[2]],
     class = gsub("_", " ", class)
   ) |>
-  filter(class %in% 
+  filter(class %in%
     c(
       "aminoglycoside",
       "gentamicin",
@@ -1141,22 +1163,26 @@ df |>
       # "azithromycin erythromycin streptogramin b tylosin",
       "clindamycin erythromycin streptogramin b",
       "cephalosporin",
-      "quinolone")) |>
+      "quinolone"
+    )) |>
   #   c(
   # filter(grepl("^gentamicin$|beta|azithromycin erythromycin [spriomycin|streptogramin b]", class))  |>
   mutate(
     class = str_to_title(class),
     class = factor(class,
       levels =
-    c(
-      "Aminoglycoside",
-      "Gentamicin",
-      # "amikacin kanamycin quinolone tobramycin",
-      "Azithromycin Erythromycin Spiramycin Telithromycin",
-      # "azithromycin erythromycin streptogramin b tylosin",
-      "Clindamycin Erythromycin Streptogramin B",
-      "Cephalosporin",
-      "Quinolone"))) |>
+        c(
+          "Aminoglycoside",
+          "Gentamicin",
+          # "amikacin kanamycin quinolone tobramycin",
+          "Azithromycin Erythromycin Spiramycin Telithromycin",
+          # "azithromycin erythromycin streptogramin b tylosin",
+          "Clindamycin Erythromycin Streptogramin B",
+          "Cephalosporin",
+          "Quinolone"
+        )
+    )
+  ) |>
   mutate(
     arm = case_when(
       arm == 1 ~ "Hospitalised\nAntibiotic",
@@ -1184,43 +1210,50 @@ df |>
 mod_sum_df <-
   read_rds(here("data_processed/gp_mod_sum_df.rda"))
 
-fact_levels <- 
-mod_sum_df |> 
-    filter(parameter == "beta[1]") |>
-    mutate(outcome_var = str_to_title(gsub("_", " ", outcome_var))) |>
-    arrange(desc(m)) |>
-    pull(outcome_var)
+fact_levels <-
+  mod_sum_df |>
+  filter(parameter == "beta[1]") |>
+  mutate(outcome_var = str_to_title(gsub("_", " ", outcome_var))) |>
+  arrange(desc(m)) |>
+  pull(outcome_var)
 
 p_3c <-
-mod_sum_df |>
+  mod_sum_df |>
   filter(grepl("beta\\[", parameter)) |>
-  mutate(parameter = 
-    case_when(grepl("1", parameter) ~ "Ceftriaxone",
-    grepl("2", parameter) ~ "Hospitalisation",
-    grepl("3", parameter) ~ "Cotrimoxazole",
-    grepl("4", parameter) ~ "Ciprofloxacin",
-    grepl("5", parameter) ~ "Amoxicillin",
-    TRUE ~ parameter)
+  mutate(
+    parameter =
+      case_when(
+        grepl("1", parameter) ~ "Ceftriaxone",
+        grepl("2", parameter) ~ "Hospitalisation",
+        grepl("3", parameter) ~ "Cotrimoxazole",
+        grepl("4", parameter) ~ "Ciprofloxacin",
+        grepl("5", parameter) ~ "Amoxicillin",
+        TRUE ~ parameter
+      )
   ) |>
-  mutate(outcome_var = str_to_title(gsub("_", " ", outcome_var)),
-         # outcome_var = str_wrap(outcome_var, width = 25),
-         outcome_var = factor(outcome_var, levels = fact_levels),
-         parameter = factor(
-            parameter,
-            levels = rev(c("Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole",
-"Amoxicillin", "Hospitalisation")))
-      )|>
+  mutate(
+    outcome_var = str_to_title(gsub("_", " ", outcome_var)),
+    # outcome_var = str_wrap(outcome_var, width = 25),
+    outcome_var = factor(outcome_var, levels = fact_levels),
+    parameter = factor(
+      parameter,
+      levels = rev(c(
+        "Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole",
+        "Amoxicillin", "Hospitalisation"
+      ))
+    )
+  ) |>
   ggplot(aes(fct_rev(outcome_var), m, ymin = ll, ymax = hh, color = ll > 0)) +
   geom_point() +
   geom_errorbar() +
   coord_flip() +
-  facet_grid(~ parameter, scales = "free") +
+  facet_grid(~parameter, scales = "free") +
   theme_bw() +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_color_manual(values = c("black",  viridis_pal(option = "A")(6)[4])) +
-labs(color = "", x = "Gene subclass", y = "Parameter Value") +
-theme(legend.position = "none") +
-scale_x_discrete(position = "top")
+  scale_color_manual(values = c("black", viridis_pal(option = "A")(6)[4])) +
+  labs(color = "", x = "Gene subclass", y = "Parameter Value") +
+  theme(legend.position = "none") +
+  scale_x_discrete(position = "top")
 
 # simulations
 
@@ -1275,7 +1308,7 @@ simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars
   # b2_exp <- 10
 
   if (exposure_var == "ceftriaxone") {
-    cov_beta_1 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp) , -1))
+    cov_beta_1 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
     cov_beta_1 <- 0
   }
@@ -1336,7 +1369,7 @@ simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars
 }
 
 simulate_exposure_multi <- function(outcome_var_to_sim, exposure_vars, mod_draws, outcome_vars,
-                                    runin = 7, t_max = 30, b2_exp = 10, cov_exp = 7, t_scale_factor  = 55.25) {
+                                    runin = 7, t_max = 30, b2_exp = 10, cov_exp = 7, t_scale_factor = 55.25) {
   i <- 1
   listout <- list()
   for (outcome_var in outcome_var_to_sim) {
@@ -1369,7 +1402,7 @@ df_ressim <-
 
 
 p_3d <-
-df_ressim |>
+  df_ressim |>
   filter(
     exposure %in% c("ceftriaxone", "cotrimoxazole"),
     outcome %in% c("cephalosporin", "aminoglycoside", "clindamycin_erythromycin_streptogramin b")
@@ -1396,14 +1429,14 @@ df_ressim |>
   facet_grid(~outcome, labeller = labeller(outcome = label_wrap_gen(25))) +
   theme_bw() +
   labs(y = "Proportion", linetype = "Exposure") +
-scale_color_manual(values = viridis_pal(option = "A")(6)[c(2,4)]) +
-scale_fill_manual(values = viridis_pal(option = "A")(6)[c(2,4)]) +
-theme(legend.position = "bottom") +
-labs(color = "Exposure", fill = "Exposure")
+  scale_color_manual(values = viridis_pal(option = "A")(6)[c(2, 4)]) +
+  scale_fill_manual(values = viridis_pal(option = "A")(6)[c(2, 4)]) +
+  theme(legend.position = "bottom") +
+  labs(color = "Exposure", fill = "Exposure")
 
 
 p_3e <-
-df_ressim |>
+  df_ressim |>
   filter(
     exposure %in% c("ciprofloxacin", "amoxicillin"),
     outcome %in% c("cephalosporin", "aminoglycoside", "clindamycin_erythromycin_streptogramin b")
@@ -1430,16 +1463,15 @@ df_ressim |>
   facet_grid(~outcome, labeller = labeller(outcome = label_wrap_gen(25))) +
   theme_bw() +
   labs(y = "Proportion", linetype = "Exposure") +
-scale_color_manual(values = viridis_pal(option = "B")(6)[c(3,5)]) +
-scale_fill_manual(values = viridis_pal(option = "B")(6)[c(3,5)]) +
-theme(legend.position = "bottom") +
-labs(color = "Exposure", fill = "Exposure")
+  scale_color_manual(values = viridis_pal(option = "B")(6)[c(3, 5)]) +
+  scale_fill_manual(values = viridis_pal(option = "B")(6)[c(3, 5)]) +
+  theme(legend.position = "bottom") +
+  labs(color = "Exposure", fill = "Exposure")
 
 
-p_3a / p_3b / p_3c / (p_3d + p_3e) + plot_layout(height = c(2.2,1, 5,1)) + plot_annotation(tag_levels = "A")
+p_3a / p_3b / p_3c / (p_3d + p_3e) + plot_layout(height = c(2.2, 1, 5, 1)) + plot_annotation(tag_levels = "A")
 
 ggsave(here("plots/fig3.pdf"), width = 16, height = 18)
-
 ```
 
 
@@ -1451,23 +1483,24 @@ ggsave(here("plots/fig3.pdf"), width = 16, height = 18)
 #| fig.width: 8
 #| fig.height: 10
 
-mod_sum_df <- 
+mod_sum_df <-
   read_rds(here("data_processed/gp_taxonomy_mod_sum_df.rda"))
 
 mod_sum_df <-
-mod_sum_df |>
+  mod_sum_df |>
   mutate(
     parameter = case_when(
       parameter == "beta[1]" ~ "beta_cef",
       parameter == "beta[2]" ~ "beta_hosp",
       parameter == "beta[3]" ~ "beta_cortrim",
       parameter == "beta[4]" ~ "beta_cip",
-parameter == "beta[5]" ~ "beta_amox",
-    TRUE ~ parameter)
-)
+      parameter == "beta[5]" ~ "beta_amox",
+      TRUE ~ parameter
+    )
+  )
 
 p_a <-
-mod_sum_df |>
+  mod_sum_df |>
   filter(!grepl("beta|lp_|eta", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "phylum") |>
@@ -1475,13 +1508,13 @@ mod_sum_df |>
   geom_point(position = position_dodge(width = 0.5)) +
   geom_errorbar(width = 0, position = position_dodge(width = 0.5)) +
   coord_flip() +
-labs(title = "Phyla: median (95% CrI) paramater estimates") +
-theme_bw() +
-labs(color = "", y = "value") + 
-scale_color_aaas()
-   
+  labs(title = "Phyla: median (95% CrI) paramater estimates") +
+  theme_bw() +
+  labs(color = "", y = "value") +
+  scale_color_aaas()
+
 p_b <-
-mod_sum_df |>
+  mod_sum_df |>
   filter(!grepl("beta|lp_|eta", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "order") |>
@@ -1489,13 +1522,13 @@ mod_sum_df |>
   geom_point(position = position_dodge(width = 0.7)) +
   geom_errorbar(width = 0, position = position_dodge(width = 0.7)) +
   coord_flip() +
-labs(title = "Order: median (95% CrI) paramater estimates") +
-theme_bw() +
-labs(color = "", y = "value") + 
-scale_color_brewer(type = "qual", palette = "Paired")
+  labs(title = "Order: median (95% CrI) paramater estimates") +
+  theme_bw() +
+  labs(color = "", y = "value") +
+  scale_color_brewer(type = "qual", palette = "Paired")
 
 p_c <-
-mod_sum_df |>
+  mod_sum_df |>
   filter(!grepl("beta|lp_|eta", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "genus") |>
@@ -1503,16 +1536,14 @@ mod_sum_df |>
   geom_point(position = position_dodge(width = 0.7)) +
   geom_errorbar(width = 0, position = position_dodge(width = 0.7)) +
   coord_flip() +
-labs(title = "Genus: median (95% CrI) paramater estimates") +
-theme_bw() +
-labs(color = "", y = "value") + 
-scale_color_npg()
+  labs(title = "Genus: median (95% CrI) paramater estimates") +
+  theme_bw() +
+  labs(color = "", y = "value") +
+  scale_color_npg()
 
-p_a / p_b / p_c + plot_layout(heights = c(1,3,3))
+p_a / p_b / p_c + plot_layout(heights = c(1, 3, 3))
 
 ggsave(here("plots/sfig1.pdf"), width = 8, height = 10)
-
-
 ```
 
 ```{r} 
@@ -1521,11 +1552,12 @@ ggsave(here("plots/sfig1.pdf"), width = 8, height = 10)
 #| fig.height: 12
 #| fig.width: 12
 
-cols <- 
+cols <-
   c(
-pal_brewer(palette = "Paired")(10),
-pal_brewer(palette = "Set3")(10),
-pal_brewer(palette = "Accent")(5))
+    pal_brewer(palette = "Paired")(10),
+    pal_brewer(palette = "Set3")(10),
+    pal_brewer(palette = "Accent")(5)
+  )
 
 df |>
   mutate(gene_symbol = make_clean_names(gene_symbol)) |>
@@ -1560,13 +1592,12 @@ df |>
   coord_flip() +
   theme_bw() +
   theme(axis.text.y = element_text(size = 8)) +
-  facet_wrap( ~ arm, scale = "free_x") +
+  facet_wrap(~arm, scale = "free_x") +
   scale_fill_manual(values = cols) +
   labs(y = "Number of samples", x = "Gene", fill = "Gene Class")
 
 
 ggsave(here("plots/sfig2.pdf"), width = 10, height = 13)
-
 ```
 
 ```{r} 
@@ -1580,11 +1611,14 @@ df |>
   mutate(gene_symbol = make_clean_names(gene_symbol)) |>
   pivot_longer(-c(gene_symbol, class, subclass)) |>
   filter(!grepl("^nc", name)) |>
-  mutate(name = gsub("_.*$", "", name),
-  bacteroides_gene = if_else(
+  mutate(
+    name = gsub("_.*$", "", name),
+    bacteroides_gene = if_else(
       grepl("cfi|cbl|crx|cep|cfx", gene_symbol),
       "bacteroides-restricted gene",
-      "not bacteroides restricted")) |>
+      "not bacteroides restricted"
+    )
+  ) |>
   filter(class == "BETA-LACTAM", subclass != "METHICILLIN") |>
   filter(value == 1) |>
   ggplot(aes(fct_rev(fct_infreq(gene_symbol)), fill = bacteroides_gene)) +
@@ -1592,12 +1626,10 @@ df |>
   facet_wrap(~subclass, scales = "free") +
   coord_flip() +
   theme_bw() +
-  scale_fill_manual(values = viridis_pal(option = "E")(2)[c(2,1)]) +
+  scale_fill_manual(values = viridis_pal(option = "E")(2)[c(2, 1)]) +
   labs(x = "Gene", fill = "", y = "Number of samples")
 
 ggsave(here("plots/sfig3.pdf"), width = 10, height = 6)
-
-
 ```
 
 
@@ -1617,14 +1649,14 @@ df |>
   ) |>
   right_join(
     semi_join(
-    btESBL_stoolESBL |>
-      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
-      mutate(lab_id = tolower(lab_id)),
-    df2,
-    by = join_by(lab_id == name)
-  ),
-     by = join_by(name == lab_id)
-      ) |>
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      df2,
+      by = join_by(lab_id == name)
+    ),
+    by = join_by(name == lab_id)
+  ) |>
   mutate(class = factor(subclass)) |>
   group_by(pid, arm, class) |>
   summarise(present = any(value == 1)) |>
@@ -1640,26 +1672,32 @@ df |>
     lci = binom.test(n_present, n_total)$conf.int[[1]],
     uci = binom.test(n_present, n_total)$conf.int[[2]],
     str = paste0(
-      n_present,"/", n_total, " (",
-      round(prop *100,0), 
+      n_present, "/", n_total, " (",
+      round(prop * 100, 0),
       "% [",
-      round(lci*100,0),
+      round(lci * 100, 0),
       "-",
-      round(uci*100,0),"%])")
+      round(uci * 100, 0), "%])"
+    )
   ) |>
   select(class, arm, str) |>
-  pivot_wider(id_cols = class,
+  pivot_wider(
+    id_cols = class,
     names_from = arm,
     names_prefix = "Arm ",
-    values_from = str) |>
+    values_from = str
+  ) |>
   kbl(
-  format = "html",
-  table.attr = 'data-quarto-disable-processing="true"') |>
+    format = "html",
+    table.attr = 'data-quarto-disable-processing="true"'
+  ) |>
   kable_styling(full_width = F) |>
   add_header_above(
-    c(" " = 1,
-      "n/N (% [95% CI]) participants with\ngene identfied at least once" = 3))
-  
+    c(
+      " " = 1,
+      "n/N (% [95% CI]) participants with\ngene identfied at least once" = 3
+    )
+  )
 ```
 
 ```{r}
@@ -1680,14 +1718,14 @@ df |>
   # ) |>
   right_join(
     semi_join(
-    btESBL_stoolESBL |>
-      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
-      mutate(lab_id = tolower(lab_id)),
-    df2,
-    by = join_by(lab_id == name)
-  ),
-     by = join_by(name == lab_id)
-      ) |>
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      df2,
+      by = join_by(lab_id == name)
+    ),
+    by = join_by(name == lab_id)
+  ) |>
   mutate(class = as.factor(tolower(subclass))) |>
   filter(value == 1) |>
   select(pid, name, arm, visit, class) |>
@@ -1740,8 +1778,153 @@ df |>
   theme(legend.position = "bottom")
 
 ggsave(here("plots/sfig4.pdf"), width = 13.5, height = 15)
+```
 
+
+
+```{r}
+#| label: fig-sfig5
+#| fig-cap: "Parameter estimates from regression models"
+#| fig.height: 12
+#| fig.width: 12
+
+
+mod_sum_df <-
+  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+
+mod_sum_df |>
+  filter(grepl("sigma|alpha|length|tau|beta_0", parameter)) |>
+  mutate(
+    outcome_var = str_to_title(gsub("_", " ", outcome_var)),
+    # outcome_var = str_wrap(outcome_var, width = 25),
+    outcome_var = factor(outcome_var, levels = rev(fact_levels))
+  ) |>
+  # outcome_var = reorder_within(outcome_var, m, parameter)) |>
+  ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar(width = 0) +
+  coord_flip() +
+  facet_grid(~parameter, scales = "free") +
+  # scale_x_reordered() +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(y = "Parameter Value", x = "Outcome Variable")
+
+ggsave(here("plots/sfig5.pdf"), width = 14, height = 10)
 
 ```
 
 
+```{r}
+#| label: fig-sfig6
+#| fig-cap: "Parameter estimates from regression models"
+#| fig.height: 12
+#| fig.width: 12
+
+plot_df <-
+mod_sum_df |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(
+    parameter =
+      case_when(
+        grepl("1", parameter) ~ "Ceftriaxone",
+        grepl("2", parameter) ~ "Hospitalisation",
+        grepl("3", parameter) ~ "Cotrimoxazole",
+        grepl("4", parameter) ~ "Ciprofloxacin",
+        grepl("5", parameter) ~ "Amoxicillin",
+        TRUE ~ parameter
+      )
+  )
+
+  |>
+  mutate(
+    outcome_var = str_to_title(gsub("_", " ", outcome_var)),
+    # outcome_var = str_wrap(outcome_var, width = 25),
+    outcome_var = factor(outcome_var, levels = fact_levels),
+    parameter = factor(
+      parameter,
+      levels = rev(c(
+        "Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole",
+        "Amoxicillin", "Hospitalisation"
+      ))
+    )
+  ) 
+
+
+plot_top_genes <- function(exposure, mod_sum_df, df) {
+ 
+  gene_categories <-
+    mod_sum_df |>
+      filter(parameter == exposure) |>
+      filter(ll > 0) |>
+      arrange(desc(m)) |>
+      pull(outcome_var)
+
+  df |>
+    mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+    filter(!grepl("^nc", name)) |>
+    mutate(name = gsub("_.*$", "", name)) |>
+    mutate(
+      subclass = tolower(subclass),
+      subclass = gsub("-|/", "_", subclass)
+    ) |>
+    filter(subclass %in% gene_categories) |>
+    right_join(
+      semi_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      df2,
+      by = join_by(lab_id == name)
+    ),
+       by = join_by(name == lab_id)
+        ) |>
+    filter(value == 1) |>
+    mutate(arm = as.factor(arm)) |>
+    mutate(
+    subclass = factor(
+        gsub("_", " ", subclass),
+        levels = gsub("_", " ", gene_categories))
+    ) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    )),
+    subclass = str_to_title(subclass)
+  ) |>
+    ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
+    geom_bar() +
+    facet_wrap(~ subclass, scales = "free", ncol = 4,
+      labeller = labeller(subclass = label_wrap_gen(25))) +
+    coord_flip() +
+    labs(title = paste0("Exposure: ", exposure),
+         x = "Gene", y = "Number of Samples", fill = "") +
+    theme_bw() +
+    scale_fill_viridis_d() +
+    theme(legend.position = "bottom")
+
+
+}
+
+
+p_cef <- plot_top_genes("Ceftriaxone", plot_df, df)
+p_cip <- plot_top_genes("Ciprofloxacin", plot_df, df)
+p_cotri <- plot_top_genes("Cotrimoxazole", plot_df, df)
+p_amox <- plot_top_genes("Amoxicillin", plot_df, df)
+p_hosp <- plot_top_genes("Hospitalisation", plot_df, df)
+
+
+p_cef / p_cip / p_cotri / (p_amox + plot_spacer() + plot_spacer() ) / p_hosp  + 
+  plot_layout(heights = c(4,1,2,1,5), guides = "collect") &
+theme(legend.position = "bottom")
+
+ggsave(here("plots/sfig6.pdf"), height = 18, width = 14)
+
+```
