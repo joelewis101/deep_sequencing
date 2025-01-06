@@ -35,6 +35,9 @@ library(pheatmap)
 library(ggpubr)
 library(viridis)
 library(kableExtra)
+library(tidytext)
+library(scales)
+library(ggsci)
 
 samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
 
@@ -966,7 +969,7 @@ tax_simulate_exposure_multi <- function(outcome_var_to_sim, exposure_vars, mod_d
 }
 
 
-df2 <-
+df_taxsim <-
   tax_simulate_exposure_multi(
     exposure_var = c("ceftriaxone", "amoxicillin", "cotrimoxazole", "ciprofloxacin"),
     outcome_var = c("phylum_Proteobacteria", "order_Enterobacterales", "genus_Escherichia"),
@@ -975,7 +978,7 @@ df2 <-
   )
 
 p_2f <-
-df2 |>
+df_taxsim |>
   filter(exposure %in% c("ceftriaxone", "cotrimoxazole")) |>
   group_by(t, exposure, outcome) |>
   mutate(exposure = factor(exposure, levels = c("ceftriaxone", "amoxicillin", "cotrimoxazole"))) |>
@@ -1000,7 +1003,7 @@ scale_color_manual(values = viridis_pal(option = "A")(6)[c(2,4)]) +
 scale_fill_manual(values = viridis_pal(option = "A")(6)[c(2,4)])
 
 p_2e <-
-df2 |>
+df_taxsim |>
   filter(exposure %in% c("ciprofloxacin", "amoxicillin")) |>
   group_by(t, exposure, outcome) |>
   mutate(exposure = factor(exposure, levels = c("ceftriaxone", "ciprofloxacin", "amoxicillin", "cotrimoxazole"))) |>
@@ -1031,13 +1034,421 @@ ggsave(here("plots/fig2.pdf"), width = 15, height = 17)
 
 ```
 
+```{r} 
+#| label: fig-fig3
+#| fig-cap: "Changes in resistome following antimicrobial exposure. (A) Prevalence of AMRFinder-defined resistance gene subclass. (B) Selected AMRFinder-defined gene subclass prevalence stratified by visit and arm. Cephalosporin and quiniolone resistance gene prevalence shows little relationship with visit/arm but macrolide and aminoglycoside resistance subclasses have a higher prevalence at visit 1 in the hospitalised/antimicrobial exposed group, consistent with an association with antimicrobial exposure. (C) Parameter values from modelling  antimicrobial resistance gene subclass presence as a function of antimicriobial exposure. Parameter values (and 95% CrI) can be interpreted as logged odds ratio. Parameter values with a convincing association between exposure and outcome (defined at lower bound of 95% CrI > 0) are coloured red. (D-E) simulated AMR gene subclass prevalence for selected subclasses, following a 10-day hospital admission and 7-day exposure to a given antimicrobial agent. Ceftriaxone is associated with an increase in aminoglycoside and clindamycin-erythromycin-streptogramin B subclass genes not seen with the other agents."
+#| fig.height: 18
+#| fig.width: 16
+
+mod_sum_df <-
+  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+
+mod_draws <-
+  read_rds(here("data_processed/gp_drawslistout.rda"))
+
+outcome_vars <-
+  read_rds(here("data_processed/gp_outcome_vars.rda"))
+
+p_3a <-
+  df |>
+    mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+    pivot_longer(-c(gene_symbol, class, subclass)) |>
+    filter(!grepl("^nc", name)) |>
+    mutate(name = gsub("_.*$", "", name)) |>
+    left_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      by = c("name" = "lab_id")
+    ) |>
+    mutate(class = factor(class)) |>
+    group_by(pid, visit, class) |>
+    summarise(present = any(value == 1)) |>
+    group_by(class) |>
+    summarise(
+      n_present = sum(present),
+      n_total = length(present)
+    ) |>
+    rowwise() |>
+    mutate(
+      class = str_to_title(class),
+      prop = n_present / n_total,
+      lci = binom.test(n_present, n_total)$conf.int[[1]],
+      uci = binom.test(n_present, n_total)$conf.int[[2]]
+    ) |>
+    ggplot(aes(fct_reorder(class, prop), prop, ymin = lci, ymax = uci)) +
+    geom_point(position = position_dodge(width = 0.6)) +
+    geom_errorbar(width = 0, position = position_dodge(width = 0.6)) +
+    coord_flip() +
+    theme_bw() +
+    labs(x =  "", y = "Proportion") +
+    scale_x_discrete(position = "top")
+
+
+
+p_3b <-
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  # filter(
+  #   class != "BETA-LACTAM"
+  # ) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+  mutate(class = as.factor(tolower(subclass))) |>
+  filter(value == 1) |>
+  select(pid, name, arm, visit, class) |>
+  pivot_wider(
+    id_cols = c(pid, name, visit, arm),
+    names_from = class,
+    values_from = class,
+    values_fn = length,
+    values_fill = 0
+  ) |>
+  janitor::clean_names() |>
+  mutate(across(!matches("pid|name|arm|visit"), \(x) if_else(x > 0, 1, 0))) |>
+  pivot_longer(-c(pid, name, arm, visit),
+    names_to = "class"
+  ) |>
+  group_by(visit, arm, class) |>
+  summarise(
+    N = length(value),
+    n = sum(value)
+  ) |>
+  rowwise() |>
+  mutate(
+    prop = n / N,
+    lci = binom.test(n, N)$conf.int[[1]],
+    uci = binom.test(n, N)$conf.int[[2]],
+    class = gsub("_", " ", class)
+  ) |>
+  filter(class %in% 
+    c(
+      "aminoglycoside",
+      "gentamicin",
+      # "amikacin kanamycin quinolone tobramycin",
+      "azithromycin erythromycin spiramycin telithromycin",
+      # "azithromycin erythromycin streptogramin b tylosin",
+      "clindamycin erythromycin streptogramin b",
+      "cephalosporin",
+      "quinolone")) |>
+  #   c(
+  # filter(grepl("^gentamicin$|beta|azithromycin erythromycin [spriomycin|streptogramin b]", class))  |>
+  mutate(
+    class = str_to_title(class),
+    class = factor(class,
+      levels =
+    c(
+      "Aminoglycoside",
+      "Gentamicin",
+      # "amikacin kanamycin quinolone tobramycin",
+      "Azithromycin Erythromycin Spiramycin Telithromycin",
+      # "azithromycin erythromycin streptogramin b tylosin",
+      "Clindamycin Erythromycin Streptogramin B",
+      "Cephalosporin",
+      "Quinolone"))) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    )),
+  ) |>
+  ggplot(aes(visit, prop, ymin = lci, ymax = uci, color = as.factor(arm), group = arm)) +
+  geom_point(alpha = 0.7) +
+  geom_line(alpha = 0.7) +
+  geom_errorbar(alpha = 0.7, width = 0) +
+  facet_wrap(~class, labeller = labeller(class = label_wrap_gen(25)), ncol = 6) +
+  theme_bw() +
+  # theme(strip.text = element_text(size = 7)) +
+  scale_color_viridis_d() +
+  labs(color = "", x = "Study Visit", y = "Prevalence") +
+  theme(legend.position = "bottom")
+
+# models
+
+mod_sum_df <-
+  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+
+fact_levels <- 
+mod_sum_df |> 
+    filter(parameter == "beta[1]") |>
+    mutate(outcome_var = str_to_title(gsub("_", " ", outcome_var))) |>
+    arrange(desc(m)) |>
+    pull(outcome_var)
+
+p_3c <-
+mod_sum_df |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(parameter = 
+    case_when(grepl("1", parameter) ~ "Ceftriaxone",
+    grepl("2", parameter) ~ "Hospitalisation",
+    grepl("3", parameter) ~ "Cotrimoxazole",
+    grepl("4", parameter) ~ "Ciprofloxacin",
+    grepl("5", parameter) ~ "Amoxicillin",
+    TRUE ~ parameter)
+  ) |>
+  mutate(outcome_var = str_to_title(gsub("_", " ", outcome_var)),
+         # outcome_var = str_wrap(outcome_var, width = 25),
+         outcome_var = factor(outcome_var, levels = fact_levels),
+         parameter = factor(
+            parameter,
+            levels = rev(c("Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole",
+"Amoxicillin", "Hospitalisation")))
+      )|>
+  ggplot(aes(fct_rev(outcome_var), m, ymin = ll, ymax = hh, color = ll > 0)) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() +
+  facet_grid(~ parameter, scales = "free") +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_manual(values = c("black",  viridis_pal(option = "A")(6)[4])) +
+labs(color = "", x = "Gene subclass", y = "Parameter Value") +
+theme(legend.position = "none") +
+scale_x_discrete(position = "top")
+
+# simulations
+
+
+
+simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_vars,
+                              runin = 7, t_max = 14, b2_exp = 10, cov_exp = 7,
+                              t_scale_factor = 55.25) {
+  # outcome_var = string, outcome AMR subclass
+  # exposure_var = name of covariate from model
+  # exposure_string = human readable string of exposure for plots
+  # mod_draws = list of draws frommodel fits
+  # outcome_vars = list of outcome vars saved from model fit
+  if (length(outcome_var) > 1 | length(exposure_var) > 1) {
+    stop("more than one outcome or exposure passed to simulate_exposure")
+  }
+
+  if (!exposure_var %in% c("ceftriaxone", "cotrimoxazole", "ciprofloxacin", "amoxicillin")) {
+    stop("exposure var not found")
+  }
+  if (!outcome_var %in% outcome_vars) {
+    stop("outcome var not found")
+  }
+
+  current_outcome_pos <- which(outcome_vars == outcome_var)
+
+  d <- mod_draws[[current_outcome_pos]]
+
+  res_post <-
+    d[, , dimnames(d)[[3]][grepl("beta|tau", dimnames(d)[[3]])]] |>
+    as_tibble(rownames = "itr") |>
+    pivot_longer(-itr) |>
+    mutate(chain = str_extract(name, "[0-9]")) |>
+    mutate(var = gsub("[1-4]\\.", "", name)) |>
+    select(-name) |>
+    pivot_wider(id_cols = c(itr, chain), names_from = var, values_from = value) |>
+    janitor::clean_names()
+
+  generate_coef <- function(cov, tau) {
+    coef <-
+      if (cov == 0) {
+        return(0)
+      } else if (cov > 0) {
+        return(1)
+      } else if (cov < 0) {
+        return(exp(cov / (tau * t_scale_factor)))
+      }
+  }
+  # runin = 7
+  # t_max = 100
+  # b1_exp <- 7
+  # b2_exp <- 10
+
+  if (exposure_var == "ceftriaxone") {
+    cov_beta_1 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp) , -1))
+  } else {
+    cov_beta_1 <- 0
+  }
+
+  if (exposure_var == "cotrimoxazole") {
+    cov_beta_3 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_3 <- 0
+  }
+  if (exposure_var == "ciprofloxacin") {
+    cov_beta_4 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_4 <- 0
+  }
+  if (exposure_var == "amoxicillin") {
+    cov_beta_5 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
+  } else {
+    cov_beta_5 <- 0
+  }
+
+  sim_df <-
+    bind_rows(
+      tibble(
+        t = seq(-runin, 0, 1),
+        cov_beta_1 = 0,
+        cov_beta_2 = 0,
+        cov_beta_3 = 0,
+        cov_beta_4 = 0,
+        cov_beta_5 = 0
+      ),
+      tibble(
+        t = 1:t_max
+      ) |>
+        mutate(
+          cov_beta_1 = cov_beta_1,
+          cov_beta_2 = c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1)),
+          cov_beta_3 = cov_beta_3,
+          cov_beta_4 = cov_beta_4,
+          cov_beta_5 = cov_beta_5
+        )
+    ) |>
+    cross_join(res_post) |>
+    rowwise() |>
+    mutate(
+      pr = plogis(
+        beta_0 +
+          beta_1 * generate_coef(cov_beta_1, tau) +
+          beta_2 * generate_coef(cov_beta_2, tau) +
+          beta_3 * generate_coef(cov_beta_3, tau) +
+          beta_4 * generate_coef(cov_beta_4, tau) +
+          beta_5 * generate_coef(cov_beta_5, tau)
+      ),
+      exposure = exposure_var,
+      outcome = outcome_var
+    )
+
+  return(sim_df)
+}
+
+simulate_exposure_multi <- function(outcome_var_to_sim, exposure_vars, mod_draws, outcome_vars,
+                                    runin = 7, t_max = 30, b2_exp = 10, cov_exp = 7, t_scale_factor  = 55.25) {
+  i <- 1
+  listout <- list()
+  for (outcome_var in outcome_var_to_sim) {
+    for (exposure_var in exposure_vars) {
+      listout[[i]] <- simulate_exposure(
+        exposure_var = exposure_var,
+        outcome_var = outcome_var,
+        mod_draws = mod_draws,
+        outcome_vars = outcome_vars,
+        runin = runin,
+        t_max = t_max,
+        b2_exp = b2_exp,
+        cov_exp = 7,
+        t_scale_factor = t_scale_factor
+      )
+      i <- i + 1
+    }
+  }
+
+  return(bind_rows(listout))
+}
+
+df_ressim <-
+  simulate_exposure_multi(
+    exposure_var = c("ceftriaxone", "amoxicillin", "cotrimoxazole", "ciprofloxacin"),
+    outcome_var = c("aminoglycoside", "cephalosporin", "clindamycin_erythromycin_streptogramin b", "quinolone", "azithromycin_erythromycin_spiramycin_telithromycin"),
+    mod_draws = mod_draws,
+    outcome_vars = outcome_vars
+  )
+
+
+p_3d <-
+df_ressim |>
+  filter(
+    exposure %in% c("ceftriaxone", "cotrimoxazole"),
+    outcome %in% c("cephalosporin", "aminoglycoside", "clindamycin_erythromycin_streptogramin b")
+  ) |>
+  group_by(t, exposure, outcome) |>
+  mutate(
+    outcome = str_to_title(gsub("_", " ", outcome)),
+    exposure = str_to_title(exposure),
+    exposure = factor(exposure, levels = c("Ceftriaxone", "Amoxicillin", "Cotrimoxazole")),
+    outcome = factor(outcome, c("Cephalosporin", "Aminoglycoside", "Clindamycin Erythromycin Streptogramin B"))
+  ) |>
+  summarise(
+    med = median(pr),
+    lci = quantile(pr, 0.025),
+    uci = quantile(pr, 0.975)
+  ) |>
+  ggplot(aes(t, med,
+    ymin = lci, ymax = uci,
+    color = exposure, fill = exposure
+  )) +
+  geom_line() +
+  geom_ribbon(color = NA, alpha = 0.3) +
+  xlim(c(-4, 30)) +
+  facet_grid(~outcome, labeller = labeller(outcome = label_wrap_gen(25))) +
+  theme_bw() +
+  labs(y = "Proportion", linetype = "Exposure") +
+scale_color_manual(values = viridis_pal(option = "A")(6)[c(2,4)]) +
+scale_fill_manual(values = viridis_pal(option = "A")(6)[c(2,4)]) +
+theme(legend.position = "bottom") +
+labs(color = "Exposure", fill = "Exposure")
+
+
+p_3e <-
+df_ressim |>
+  filter(
+    exposure %in% c("ciprofloxacin", "amoxicillin"),
+    outcome %in% c("cephalosporin", "aminoglycoside", "clindamycin_erythromycin_streptogramin b")
+  ) |>
+  group_by(t, exposure, outcome) |>
+  mutate(
+    outcome = str_to_title(gsub("_", " ", outcome)),
+    exposure = str_to_title(exposure),
+    exposure = factor(exposure, levels = c("Ciprofloxacin", "Amoxicillin")),
+    outcome = factor(outcome, c("Cephalosporin", "Aminoglycoside", "Clindamycin Erythromycin Streptogramin B"))
+  ) |>
+  summarise(
+    med = median(pr),
+    lci = quantile(pr, 0.025),
+    uci = quantile(pr, 0.975)
+  ) |>
+  ggplot(aes(t, med,
+    ymin = lci, ymax = uci,
+    color = exposure, fill = exposure
+  )) +
+  geom_line() +
+  geom_ribbon(color = NA, alpha = 0.3) +
+  xlim(c(-4, 30)) +
+  facet_grid(~outcome, labeller = labeller(outcome = label_wrap_gen(25))) +
+  theme_bw() +
+  labs(y = "Proportion", linetype = "Exposure") +
+scale_color_manual(values = viridis_pal(option = "B")(6)[c(3,5)]) +
+scale_fill_manual(values = viridis_pal(option = "B")(6)[c(3,5)]) +
+theme(legend.position = "bottom") +
+labs(color = "Exposure", fill = "Exposure")
+
+
+p_3a / p_3b / p_3c / (p_3d + p_3e) + plot_layout(height = c(2.2,1, 5,1)) + plot_annotation(tag_levels = "A")
+
+ggsave(here("plots/fig3.pdf"), width = 16, height = 18)
+
+```
+
 
 ## Supplementary figures
 
 ```{r}
-#| label: fig-model-params
+#| label: fig-sfig1
 #| fig-cap: "Parameter values for each of the models excluding covariate values"
-#| fig.width: 10
+#| fig.width: 8
 #| fig.height: 10
 
 mod_sum_df <- 
@@ -1051,7 +1462,7 @@ mod_sum_df |>
       parameter == "beta[2]" ~ "beta_hosp",
       parameter == "beta[3]" ~ "beta_cortrim",
       parameter == "beta[4]" ~ "beta_cip",
-      parameter == "beta[5]" ~ "beta_amox",
+parameter == "beta[5]" ~ "beta_amox",
     TRUE ~ parameter)
 )
 
@@ -1103,4 +1514,234 @@ ggsave(here("plots/sfig1.pdf"), width = 8, height = 10)
 
 
 ```
+
+```{r} 
+#| label: fig-sfig2
+#| fig-cap: "AMR genes present (excluding those genes present in <= 5 samples)"
+#| fig.height: 12
+#| fig.width: 12
+
+cols <- 
+  c(
+pal_brewer(palette = "Paired")(10),
+pal_brewer(palette = "Set3")(10),
+pal_brewer(palette = "Accent")(5))
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")
+  ) |>
+  filter(value == 1) |>
+  group_by(gene_symbol, class, arm) |>
+  tally() |>
+  group_by(gene_symbol) |>
+  mutate(tot = sum(n)) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    )),
+  ) |>
+  filter(n > 5) |>
+  ggplot(aes(fct_reorder(gene_symbol, tot), n, fill = class)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw() +
+  theme(axis.text.y = element_text(size = 8)) +
+  facet_wrap( ~ arm, scale = "free_x") +
+  scale_fill_manual(values = cols) +
+  labs(y = "Number of samples", x = "Gene", fill = "Gene Class")
+
+
+ggsave(here("plots/sfig2.pdf"), width = 10, height = 13)
+
+```
+
+```{r} 
+#| label: fig-sfig3
+#| fig-cap: "Distribution of beta-lactamase genes stratified by AMRFinder-defined beta-lactamse subclass "
+#| fig.height: 6
+#| fig.width: 10
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name),
+  bacteroides_gene = if_else(
+      grepl("cfi|cbl|crx|cep|cfx", gene_symbol),
+      "bacteroides-restricted gene",
+      "not bacteroides restricted")) |>
+  filter(class == "BETA-LACTAM", subclass != "METHICILLIN") |>
+  filter(value == 1) |>
+  ggplot(aes(fct_rev(fct_infreq(gene_symbol)), fill = bacteroides_gene)) +
+  geom_bar() +
+  facet_wrap(~subclass, scales = "free") +
+  coord_flip() +
+  theme_bw() +
+  scale_fill_manual(values = viridis_pal(option = "E")(2)[c(2,1)]) +
+  labs(x = "Gene", fill = "", y = "Number of samples")
+
+ggsave(here("plots/sfig3.pdf"), width = 10, height = 6)
+
+
+```
+
+
+```{r}
+#| label: tbl-stab2
+#| tbl-cap: "Proportion of participants with AMRFinder-defined beta-lactam subclass identfied (excludes bacteroides-specific genes)"
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  filter(
+    class == "BETA-LACTAM",
+    subclass != "METHICILLIN",
+    !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
+  ) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+  mutate(class = factor(subclass)) |>
+  group_by(pid, arm, class) |>
+  summarise(present = any(value == 1)) |>
+  group_by(class, arm) |>
+  summarise(
+    n_present = sum(present),
+    n_total = length(present)
+  ) |>
+  rowwise() |>
+  mutate(
+    class = tolower(class),
+    prop = n_present / n_total,
+    lci = binom.test(n_present, n_total)$conf.int[[1]],
+    uci = binom.test(n_present, n_total)$conf.int[[2]],
+    str = paste0(
+      n_present,"/", n_total, " (",
+      round(prop *100,0), 
+      "% [",
+      round(lci*100,0),
+      "-",
+      round(uci*100,0),"%])")
+  ) |>
+  select(class, arm, str) |>
+  pivot_wider(id_cols = class,
+    names_from = arm,
+    names_prefix = "Arm ",
+    values_from = str) |>
+  kbl(
+  format = "html",
+  table.attr = 'data-quarto-disable-processing="true"') |>
+  kable_styling(full_width = F) |>
+  add_header_above(
+    c(" " = 1,
+      "n/N (% [95% CI]) participants with\ngene identfied at least once" = 3))
+  
+```
+
+```{r}
+#| label: fig-sfig4
+#| fig-cap: "Prevalence of AMRFinder defined AMR gene subclass gene stratified by study visit and arm"
+#| fig.height: 12
+#| fig.width: 12
+
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  # filter(
+  #   class != "BETA-LACTAM"
+  # ) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+  mutate(class = as.factor(tolower(subclass))) |>
+  filter(value == 1) |>
+  select(pid, name, arm, visit, class) |>
+  pivot_wider(
+    id_cols = c(pid, name, visit, arm),
+    names_from = class,
+    values_from = class,
+    values_fn = length,
+    values_fill = 0
+  ) |>
+  janitor::clean_names() |>
+  mutate(across(!matches("pid|name|arm|visit"), \(x) if_else(x > 0, 1, 0))) |>
+  pivot_longer(-c(pid, name, arm, visit),
+    names_to = "class"
+  ) |>
+  group_by(visit, arm, class) |>
+  summarise(
+    N = length(value),
+    n = sum(value)
+  ) |>
+  rowwise() |>
+  mutate(
+    prop = n / N,
+    lci = binom.test(n, N)$conf.int[[1]],
+    uci = binom.test(n, N)$conf.int[[2]],
+    class = gsub("_", " ", class)
+  ) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    )),
+    class = str_to_title(class)
+  ) |>
+  # filter(grepl("gent|aminoglyco|kanamycin_quionolone", class))  |>
+  ggplot(aes(visit, prop, ymin = lci, ymax = uci, color = arm, group = arm)) +
+  geom_point(alpha = 0.7) +
+  geom_line(alpha = 0.7) +
+  geom_errorbar(width = 0, alpha = 0.7) +
+  facet_wrap(~class, labeller = labeller(class = label_wrap_gen(25)), ncol = 8) +
+  theme_bw() +
+  # theme(strip.text = element_text(size = 7)) +
+  scale_color_viridis_d() +
+  labs(color = "", x = "Study Visit", y = "Gene Subclass Prevalence") +
+  theme(legend.position = "bottom")
+
+ggsave(here("plots/sfig4.pdf"), width = 13.5, height = 15)
+
+
+```
+
 
