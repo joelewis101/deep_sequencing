@@ -14,7 +14,9 @@ execute:
   message: false
 ---
 
-# Demographic tables 
+# Main paper tables and figures
+
+## Demographic tables 
 
 ```{r}
 #| label: tbl-demog
@@ -199,7 +201,7 @@ btESBL_exposures |>
 ```
 
 
-# Taxonomy
+## Taxonomy
 
 
 ```{r} 
@@ -1028,3 +1030,77 @@ scale_fill_manual(values = viridis_pal(option = "B")(6)[c(3,5)])
 ggsave(here("plots/fig2.pdf"), width = 15, height = 17)
 
 ```
+
+
+## Supplementary figures
+
+```{r}
+#| label: fig-model-params
+#| fig-cap: "Parameter values for each of the models excluding covariate values"
+#| fig.width: 10
+#| fig.height: 10
+
+mod_sum_df <- 
+  read_rds(here("data_processed/gp_taxonomy_mod_sum_df.rda"))
+
+mod_sum_df <-
+mod_sum_df |>
+  mutate(
+    parameter = case_when(
+      parameter == "beta[1]" ~ "beta_cef",
+      parameter == "beta[2]" ~ "beta_hosp",
+      parameter == "beta[3]" ~ "beta_cortrim",
+      parameter == "beta[4]" ~ "beta_cip",
+      parameter == "beta[5]" ~ "beta_amox",
+    TRUE ~ parameter)
+)
+
+p_a <-
+mod_sum_df |>
+  filter(!grepl("beta|lp_|eta", parameter)) |>
+  mutate(taxa = gsub("_.*$", "", outcome_var)) |>
+  filter(taxa == "phylum") |>
+  ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.5)) +
+  coord_flip() +
+labs(title = "Phyla: median (95% CrI) paramater estimates") +
+theme_bw() +
+labs(color = "", y = "value") + 
+scale_color_aaas()
+   
+p_b <-
+mod_sum_df |>
+  filter(!grepl("beta|lp_|eta", parameter)) |>
+  mutate(taxa = gsub("_.*$", "", outcome_var)) |>
+  filter(taxa == "order") |>
+  ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
+  geom_point(position = position_dodge(width = 0.7)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.7)) +
+  coord_flip() +
+labs(title = "Order: median (95% CrI) paramater estimates") +
+theme_bw() +
+labs(color = "", y = "value") + 
+scale_color_brewer(type = "qual", palette = "Paired")
+
+p_c <-
+mod_sum_df |>
+  filter(!grepl("beta|lp_|eta", parameter)) |>
+  mutate(taxa = gsub("_.*$", "", outcome_var)) |>
+  filter(taxa == "genus") |>
+  ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
+  geom_point(position = position_dodge(width = 0.7)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.7)) +
+  coord_flip() +
+labs(title = "Genus: median (95% CrI) paramater estimates") +
+theme_bw() +
+labs(color = "", y = "value") + 
+scale_color_npg()
+
+p_a / p_b / p_c + plot_layout(heights = c(1,3,3))
+
+ggsave(here("plots/sfig1.pdf"), width = 8, height = 10)
+
+
+```
+
