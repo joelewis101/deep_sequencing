@@ -14,14 +14,11 @@ execute:
   message: false
 ---
 
-# Taxonomy
+# Demographic tables 
 
+```{r}
+#| label: tbl-demog
 
-```{r} 
-#| label: fig-fig1
-#| fig-cap: "Changes in alpha and beta diversity over time; (A) Shannon Diversity stratified by study arm and visit; (B-C) parameters from modelling Shannon Diversity as a function of antimicrobial exposure. Alpha = magnitude of within-participant correlation, length scale = decay parameter of within participant correlation (on standardised time scale, 1 unit = 55 days), beta_0 = model population intercept, tau = decay constant of effect of antimicrobial exposure (on standardised time scale, 1 unit = 55 days). Antimicrobial/hospitalisation parameters can be interpreted as the change in mean Shannon Diversity given exposre; (D) simulated mean Shannon Diversity for hospitalisation (10 days) and antimicrobial exposure (7days) with different antimicrobials; (E) Principal coordinate plot of all-against-all Bray Curtis dissimilarity (beta diversity) with 95% confidence intervals assumng student T distibution stratified by study arm; (F) Within-participant Bray-Curtis dissimilarity to baseline sample, stratified by arm, showing that participants admitted to hospital and exposed to antimicrobials have persisent changes in beta diversity over six months, compared to community controls"
-#| fig.width: 11
-#| fig.height: 11
 
 library(tidyverse)
 library(phyloseq)
@@ -35,10 +32,184 @@ library(patchwork)
 library(pheatmap)
 library(ggpubr)
 library(viridis)
+library(kableExtra)
+
+samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
+
+df <-
+  read_tsv(
+    here(
+      "data_raw/ECO_AMRfinder_all_metagenomes_default_17_11_23/AMR_binary_matrix.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+df <-
+  df |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name =
+    str_extract(
+      name,
+      "sample_[0-9]{1,3}_(.*)_(:?uncorrected_amr|amr)",
+      group = 1
+      )
+  ) |>
+  mutate(name = gsub("_uncorrected", "", name)) |>
+  pivot_wider(
+    id_cols = c(class, subclass, gene_symbol),
+  )
+
+df2 <-
+  df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  select(-c(class, subclass)) |>
+  pivot_longer(-gene_symbol) |>
+  filter(!grepl("^nc", name)) |>
+  pivot_wider(id_cols = name, names_from = gene_symbol, values_from = value) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")
+  )
+
+df2 <- 
+  df2 |>
+  filter(!name %in% tolower(samples_to_drop))
+
+df <-
+  df |>
+    select(!matches(paste(tolower(samples_to_drop), collapse = "|")))
+included_participants <-
+  df2 |>
+    pull(pid) |>
+    unique()
+
+btESBL_participants |>
+  filter(pid %in% included_participants) |>
+  mutate(watersource = if_else(grepl("Surface|Unprotected", watersource), "Unprotected",
+"Protected")) |>
+  select(calc_age, ptsex, keepanim, watersource, arm, hivstatus, hivonart, hivcpt) |>
+  blantyreSepsis::pretty_tbl_df() |>
+  filter(!levels %in% c("Male", "No", "Protected")) |>
+  mutate(variable =
+    case_when(
+      levels == 1 ~ "Hospitalised/antibiotic exposed",
+      levels == 2 ~ "Hospitalised/antibiotic unexposed",
+      levels == 3 ~ "Community/antibiotic unexposed",
+      variable == "calc_age" ~ "Age (years) median (IQR)",
+      variable == "ptsex" ~ "Female sex",
+      variable == "keepanim" ~ "Animals at home",
+      variable == "watersource" ~ "Unprotected water source",
+      grepl("eactive|Unknown", levels) ~ levels, 
+      variable == "hivonart" ~ "Of PLWHIV\nCurrent ART",
+      variable == "hivcpt" ~ "OF PLWHIV\nCurrent CPT",
+      TRUE ~ variable)) |>
+    select(-levels) |>
+  kbl(caption = "Characteristics of included participants") |>
+  kable_classic(full_width = FALSE) |>
+  pack_rows("Demographics", 1,4) |>
+  pack_rows("Study Arm", 5,7) |>
+  pack_rows("HIV status", 8,12) 
+```
+
+
+```{r}
+#| label: tbl-abexp
+
+c("Amoxicillin" = "amoxy",
+  "Gentamicin" = "genta",
+  "Azithromycin" = "azithro",
+  "TB therapy" = "tb",
+  "Penicillin" = "benzy",
+  "Fluconazole" = "fluco",
+  "Ceftriaxone" = "cefo",
+  "Amphotericin" = "ampho",
+  "Quinine" = "quin",
+  "Chloramphenicol" = "chlora",
+  "Lumafentrine-artemether" = "coart",
+  "Ciprofloxacin" = "cipro",
+  "Co-amoxiclav" = "coamo",
+  "Artesunate" = "arte",
+  "Cotrimoxazole" = "cotri",
+  "Clindamycin" = "clinda",
+  "Doxycycline" = "doxy",
+  "Erythromycin" = "erythro",
+  "Aciclovir" = "acicl",
+  "Flucloxacillin" = "fluclox",
+  "Metronidazole" = "metro",
+  "Streptomycin" = "strepto"
+  ) -> rename_lookup
+
+
+
+
+  
+  
+
+btESBL_exposures |>
+  filter(pid %in% included_participants) |>
+  select(-c(assess_type, died, hosp))  |>
+  rename(!!!rename_lookup) |>
+  pivot_longer(-pid) |> 
+  group_by(pid, name) |>
+  summarise(exposed = any(value == 1)) |>
+  group_by(name) |>
+  summarise(n = sum(exposed), N = length(exposed)) |>
+  arrange(desc(n)) |>
+  filter(n > 0) |>
+  mutate(perc = paste0(blantyreSepsis::sp_dc(100*n/N, 0),"%"),
+  exposed = paste0(n,"/", N, " (", perc,")")) |>
+left_join(
+btESBL_exposures |> 
+  filter(pid %in% included_participants) |>
+  expand(assess_type, pid) |>
+  left_join(btESBL_exposures,
+    by = join_by(pid == pid, assess_type == assess_type)) |>
+  rename(!!!rename_lookup) |>
+  arrange(pid,assess_type) |>
+  group_by(pid) |>
+  fill(everything()) |>
+  select(-died) |>
+  pivot_longer(-c(pid, assess_type)) |>
+  group_by(name, pid) |>
+  summarise(duration = sum(value, na.rm = TRUE)) |>
+  group_by(name) |>
+  filter(duration !=0) |>
+  summarise(median = median(duration),
+    lci = quantile(duration, 0.25),
+    uci = quantile(duration, 0.75)) |>
+  transmute(agent = name, 
+    exposure = paste0(median, " (",lci,"-",uci,")")),
+    by = join_by(name == agent)) |>
+  transmute(
+    Antimicrobial = name,
+    Exposed = exposed,
+    Duration = exposure) |>
+  kbl(caption = "Antimicrobial exposures in the cohort",
+  col.names = 
+  c("Antimicrobial",
+    "Number Exposed", "Days of exposure\n(Median [IQR])")
+      )|>
+  kable_classic(full_width = FALSE)
+
+
+```
+
+
+# Taxonomy
+
+
+```{r} 
+#| label: fig-fig1
+#| fig-cap: "Changes in alpha and beta diversity over time; (A) Shannon Diversity stratified by study arm and visit; (B-C) parameters from modelling Shannon Diversity as a function of antimicrobial exposure. Alpha = magnitude of within-participant correlation, length scale = decay parameter of within participant correlation (on standardised time scale, 1 unit = 55 days), beta_0 = model population intercept, tau = decay constant of effect of antimicrobial exposure (on standardised time scale, 1 unit = 55 days). Antimicrobial/hospitalisation parameters can be interpreted as the change in mean Shannon Diversity given exposre; (D) simulated mean Shannon Diversity for hospitalisation (10 days) and antimicrobial exposure (7days) with different antimicrobials; (E) Principal coordinate plot of all-against-all Bray Curtis dissimilarity (beta diversity) with 95% confidence intervals assumng student T distibution stratified by study arm; (F) Within-participant Bray-Curtis dissimilarity to baseline sample, stratified by arm, showing that participants admitted to hospital and exposed to antimicrobials have persisent changes in beta diversity over six months, compared to community controls"
+#| fig.width: 11
+#| fig.height: 11
 
 biom <- import_biom(here("data_raw/vivien_taxonomy_reports/table.biom"))
 
-samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
 
 # add metadata
 biom <-
@@ -703,6 +874,12 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
     cov_beta_1 <- 0
   }
 
+  if (b2_exp == 0) {
+     cov_beta_2 <- 0
+  } else {
+     cov_beta_2 <- c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1))
+  }
+
   if (exposure_var == "cotrimoxazole") {
     cov_beta_3 <- c(rep(1, cov_exp), seq(-1, -(t_max - cov_exp), -1))
   } else {
@@ -734,7 +911,7 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
       ) |>
         mutate(
           cov_beta_1 = cov_beta_1,
-          cov_beta_2 = c(rep(1, b2_exp), seq(-1, -(t_max - b2_exp), -1)),
+          cov_beta_2 = cov_beta_2,
           cov_beta_3 = cov_beta_3,
           cov_beta_4 = cov_beta_4,
           cov_beta_5 = cov_beta_5
@@ -792,7 +969,7 @@ df2 <-
     exposure_var = c("ceftriaxone", "amoxicillin", "cotrimoxazole", "ciprofloxacin"),
     outcome_var = c("phylum_Proteobacteria", "order_Enterobacterales", "genus_Escherichia"),
     mod_draws = tax_mod_draws,
-    outcome_vars = tax_outcome_vars
+    outcome_vars = tax_outcome_vars,
   )
 
 p_2f <-
@@ -812,14 +989,13 @@ df2 |>
   geom_line() +
   geom_ribbon(color = NA, alpha = 0.3) +
   xlim(c(-4, 30)) +
-  facet_grid(~outcome, scales = "free") +
+  facet_wrap(~outcome, scales = "free") +
   theme_bw() +
   labs(y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
 "Exposure") +
 theme(legend.position = "bottom") +
-scale_color_manual(values = viridis_pal(option = "C")(6)[c(2,5)]) +
-scale_fill_manual(values = viridis_pal(option = "C")(6)[c(2,5)])  +
-coord_cartesian(ylim = c(0, 0.7))
+scale_color_manual(values = viridis_pal(option = "A")(6)[c(2,4)]) +
+scale_fill_manual(values = viridis_pal(option = "A")(6)[c(2,4)])
 
 p_2e <-
 df2 |>
@@ -843,8 +1019,8 @@ df2 |>
   labs(y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
 "Exposure") +
 theme(legend.position = "bottom") +
-scale_color_manual(values = viridis_pal(option = "C")(6)[c(1,3)]) +
-scale_fill_manual(values = viridis_pal(option = "C")(6)[c(1,3)])
+scale_color_manual(values = viridis_pal(option = "B")(6)[c(3,5)]) +
+scale_fill_manual(values = viridis_pal(option = "B")(6)[c(3,5)])
 
 (((p_2a / p_2b / p_2c) | p_2d) / (p_2f + p_2e) +  plot_layout(heights = c(4,0.6))) + plot_annotation(tag_levels = "A")
 
