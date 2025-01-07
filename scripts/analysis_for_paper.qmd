@@ -14,9 +14,9 @@ execute:
   message: false
 ---
 
-# Main paper tables and figures
+# Main Tables and Figures
 
-## Demographic tables 
+## Table 1
 
 ```{r}
 #| label: tbl-demog
@@ -38,6 +38,8 @@ library(kableExtra)
 library(tidytext)
 library(scales)
 library(ggsci)
+library(ggplotify)
+library(blantyreSepsis)
 
 samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
 
@@ -125,101 +127,7 @@ btESBL_participants |>
 ```
 
 
-```{r}
-#| label: tbl-abexp
-
-c(
-  "Amoxicillin" = "amoxy",
-  "Gentamicin" = "genta",
-  "Azithromycin" = "azithro",
-  "TB therapy" = "tb",
-  "Penicillin" = "benzy",
-  "Fluconazole" = "fluco",
-  "Ceftriaxone" = "cefo",
-  "Amphotericin" = "ampho",
-  "Quinine" = "quin",
-  "Chloramphenicol" = "chlora",
-  "Lumafentrine-artemether" = "coart",
-  "Ciprofloxacin" = "cipro",
-  "Co-amoxiclav" = "coamo",
-  "Artesunate" = "arte",
-  "Cotrimoxazole" = "cotri",
-  "Clindamycin" = "clinda",
-  "Doxycycline" = "doxy",
-  "Erythromycin" = "erythro",
-  "Aciclovir" = "acicl",
-  "Flucloxacillin" = "fluclox",
-  "Metronidazole" = "metro",
-  "Streptomycin" = "strepto"
-) -> rename_lookup
-
-
-
-
-
-
-
-btESBL_exposures |>
-  filter(pid %in% included_participants) |>
-  select(-c(assess_type, died, hosp)) |>
-  rename(!!!rename_lookup) |>
-  pivot_longer(-pid) |>
-  group_by(pid, name) |>
-  summarise(exposed = any(value == 1)) |>
-  group_by(name) |>
-  summarise(n = sum(exposed), N = length(exposed)) |>
-  arrange(desc(n)) |>
-  filter(n > 0) |>
-  mutate(
-    perc = paste0(blantyreSepsis::sp_dc(100 * n / N, 0), "%"),
-    exposed = paste0(n, "/", N, " (", perc, ")")
-  ) |>
-  left_join(
-    btESBL_exposures |>
-      filter(pid %in% included_participants) |>
-      expand(assess_type, pid) |>
-      left_join(btESBL_exposures,
-        by = join_by(pid == pid, assess_type == assess_type)
-      ) |>
-      rename(!!!rename_lookup) |>
-      arrange(pid, assess_type) |>
-      group_by(pid) |>
-      fill(everything()) |>
-      select(-died) |>
-      pivot_longer(-c(pid, assess_type)) |>
-      group_by(name, pid) |>
-      summarise(duration = sum(value, na.rm = TRUE)) |>
-      group_by(name) |>
-      filter(duration != 0) |>
-      summarise(
-        median = median(duration),
-        lci = quantile(duration, 0.25),
-        uci = quantile(duration, 0.75)
-      ) |>
-      transmute(
-        agent = name,
-        exposure = paste0(median, " (", lci, "-", uci, ")")
-      ),
-    by = join_by(name == agent)
-  ) |>
-  transmute(
-    Antimicrobial = name,
-    Exposed = exposed,
-    Duration = exposure
-  ) |>
-  kbl(
-    caption = "Antimicrobial exposures in the cohort",
-    col.names =
-      c(
-        "Antimicrobial",
-        "Number Exposed", "Days of exposure\n(Median [IQR])"
-      )
-  ) |>
-  kable_classic(full_width = FALSE)
-```
-
-
-## Taxonomy
+## Figure 1
 
 
 ```{r} 
@@ -646,6 +554,8 @@ p_1f <-
 ggsave(here("plots/fig1.pdf"), width = 11, height = 11)
 ```
 
+## Figure 2
+
 ```{r}
 #| label: fig-fig2
 #| fig-cap: "Changes in microbiome composition under antimicrobial pressure: Relative abundance of top 3 Phyla (A), top 3 Proteobacteria Orders (B) and top 3 Enterobacterales Genera (C), stratified by study arm and visit, showing higher abundance of Proteobacteria, Enterobacteales and Escherichia at visit 1 in the antibiotic exposed, corresponding to maximal antimicrobial exposure. (D) parameter values for effect of antimicrobial exposure or hoispitalisation on microbiome composition, on log scale with 95% credible intervals; parameter values > 1 correspond to an increase < 1 to a decrease. (E-F) simulated antimicrobial exposures (7 days) for a participant hospitalised for 10 days, showing proportion of Proteibacteria reads (right panel), proportion of Proteobacteria reads that are Enterobacterales (middle panel), proportion of Enterobacterales reads that are Escherichia (right panel) with 50% prediction intervals."
@@ -1055,6 +965,8 @@ p_2e <-
 
 ggsave(here("plots/fig2.pdf"), width = 15, height = 17)
 ```
+
+## Figure 3
 
 ```{r} 
 #| label: fig-fig3
@@ -1472,14 +1384,266 @@ p_3e <-
 p_3a / p_3b / p_3c / (p_3d + p_3e) + plot_layout(height = c(2.2, 1, 5, 1)) + plot_annotation(tag_levels = "A")
 
 ggsave(here("plots/fig3.pdf"), width = 16, height = 18)
+
+```
+
+## Figure 4
+
+```{r}
+#| label: fig-fig4
+#| fig-cap: "Changes in resistome following antimicrobial exposure. (A) Prevalence of AMRFinder-defined resistance gene subclass. (B) Selected AMRFinder-defined gene subclass prevalence stratified by visit and arm. Cephalosporin and quiniolone resistance gene prevalence shows little relationship with visit/arm but macrolide and aminoglycoside resistance subclasses have a higher prevalence at visit 1 in the hospitalised/antimicrobial exposed group, consistent with an association with antimicrobial exposure. (C) Parameter values from modelling  antimicrobial resistance gene subclass presence as a function of antimicriobial exposure. Parameter values (and 95% CrI) can be interpreted as logged odds ratio. Parameter values with a convincing association between exposure and outcome (defined at lower bound of 95% CrI > 0) are coloured red. (D-E) simulated AMR gene subclass prevalence for selected subclasses, following a 10-day hospital admission and 7-day exposure to a given antimicrobial agent. Ceftriaxone is associated with an increase in aminoglycoside and clindamycin-erythromycin-streptogramin B subclass genes not seen with the other agents."
+#| fig.height: 8
+#| fig.width: 13
+
+all_included_samples <-
+  df |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "([^_]*)_.*",
+      group = 1
+    )
+  ) |>
+  filter(name != "nc") |>
+  filter(!name %in% tolower(samples_to_drop)) |>
+  pull(name) |>
+  unique()
+
+dfgene <-
+  read_tsv(
+    here(
+      "data_raw/E_coli_bins_gene_output_13_12_24.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+
+dfmut <-
+  read_tsv(
+    here(
+      "data_raw/E_coli_bins_mut_output_13_12_24.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+dfgene <-
+  dfgene |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "sample_[0-9]{1,3}_([^_]*)_",
+      group = 1
+    )
+  ) |>
+  filter(!name %in% samples_to_drop) |>
+  unique() |>
+  mutate(type = "gene")
+
+dfmut <-
+  dfmut |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "sample_[0-9]{1,3}_([^_]*)_",
+      group = 1
+    )
+  ) |>
+  filter(!name %in% samples_to_drop) |>
+  unique() |>
+  mutate(type = "mutation")
+
+metadata <-
+  btESBL_stoolESBL |>
+  mutate(
+    lab_id = tolower(lab_id),
+    assess_type = as.numeric(difftime(data_date, enroll_date, unit = "days"))
+  ) |>
+  select(pid, arm, visit, lab_id, assess_type) |>
+  filter(lab_id %in% all_included_samples)
+
+
+ecoli_mod_sum_df <-
+  read_rds(here("data_processed/ECOLIgp_mod_sum_df.rda"))
+
+
+ecoli_fact_levels <-
+  ecoli_mod_sum_df |>
+  filter(parameter == "beta[1]") |>
+  mutate(outcome_var = str_to_title(gsub("_", " ", outcome_var))) |>
+  arrange(desc(m)) |>
+  pull(outcome_var)
+
+p_4b <-
+ecoli_mod_sum_df |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(
+    parameter =
+      case_when(
+        grepl("1", parameter) ~ "Ceftriaxone",
+        grepl("2", parameter) ~ "Hospitalisation",
+        grepl("3", parameter) ~ "Cotrimoxazole",
+        grepl("4", parameter) ~ "Ciprofloxacin",
+        grepl("5", parameter) ~ "Amoxicillin",
+        TRUE ~ parameter
+      )
+  ) |>
+  mutate(
+    outcome_var = str_to_title(gsub("_", " ", outcome_var)),
+    # outcome_var = str_wrap(outcome_var, width = 25),
+    outcome_var = factor(outcome_var, levels = ecoli_fact_levels),
+    parameter = factor(
+      parameter,
+      levels = rev(c(
+        "Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole",
+        "Amoxicillin", "Hospitalisation"
+      ))
+    )
+  ) |>
+  ggplot(aes(fct_rev(outcome_var), m, ymin = ll, ymax = hh, color = ll > 0)) +
+  geom_point() +
+  geom_errorbar(width = 0) +
+  coord_flip() +
+  facet_grid(~parameter, scales = "free") +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_manual(values = c("black", viridis_pal(option = "A")(6)[4])) +
+  labs(color = "", x = "Gene subclass", y = "Parameter Value") +
+  theme(legend.position = "none") +
+  scale_x_discrete(position = "top")
+
+
+p_4a <-
+  dfgene |>
+  group_by(name, subclass) |>
+  summarise(present = any(value == 1)) |>
+  mutate(subclass = tolower(subclass),
+    subclass = str_to_title(gsub("\\/", " ", subclass))) |>
+  group_by(subclass) |>
+  summarise(n = sum(present),
+    N = length(present)) |>
+  rowwise() |>
+  mutate(pr = n/N,
+    lci = binom.test(n,N)$conf.int[[1]],
+    uci = binom.test(n,N)$conf.int[[2]]) |>
+  ggplot(aes(fct_reorder(subclass, pr), pr, ymin = lci, ymax = uci)) +
+  geom_point() +
+  geom_errorbar(width = 0) +
+  coord_flip() +
+  theme_bw() +
+labs(y = "Prevalence", x = "Gene Subclass")
+
+p_4a / p_4b + plot_layout(heights = c(1,1)) + plot_annotation(tag_levels = "A")
+
+ggsave(here("plots/fig4.pdf"), width = 13, height = 8)
+
 ```
 
 
-## Supplementary figures
+# Supplementary figures
+
+## Supplementary Table 1
+
+```{r}
+#| label: tbl-abexp
+
+c(
+  "Amoxicillin" = "amoxy",
+  "Gentamicin" = "genta",
+  "Azithromycin" = "azithro",
+  "TB therapy" = "tb",
+  "Penicillin" = "benzy",
+  "Fluconazole" = "fluco",
+  "Ceftriaxone" = "cefo",
+  "Amphotericin" = "ampho",
+  "Quinine" = "quin",
+  "Chloramphenicol" = "chlora",
+  "Lumafentrine-artemether" = "coart",
+  "Ciprofloxacin" = "cipro",
+  "Co-amoxiclav" = "coamo",
+  "Artesunate" = "arte",
+  "Cotrimoxazole" = "cotri",
+  "Clindamycin" = "clinda",
+  "Doxycycline" = "doxy",
+  "Erythromycin" = "erythro",
+  "Aciclovir" = "acicl",
+  "Flucloxacillin" = "fluclox",
+  "Metronidazole" = "metro",
+  "Streptomycin" = "strepto"
+) -> rename_lookup
+
+
+
+
+
+
+
+btESBL_exposures |>
+  filter(pid %in% included_participants) |>
+  select(-c(assess_type, died, hosp)) |>
+  rename(!!!rename_lookup) |>
+  pivot_longer(-pid) |>
+  group_by(pid, name) |>
+  summarise(exposed = any(value == 1)) |>
+  group_by(name) |>
+  summarise(n = sum(exposed), N = length(exposed)) |>
+  arrange(desc(n)) |>
+  filter(n > 0) |>
+  mutate(
+    perc = paste0(blantyreSepsis::sp_dc(100 * n / N, 0), "%"),
+    exposed = paste0(n, "/", N, " (", perc, ")")
+  ) |>
+  left_join(
+    btESBL_exposures |>
+      filter(pid %in% included_participants) |>
+      expand(assess_type, pid) |>
+      left_join(btESBL_exposures,
+        by = join_by(pid == pid, assess_type == assess_type)
+      ) |>
+      rename(!!!rename_lookup) |>
+      arrange(pid, assess_type) |>
+      group_by(pid) |>
+      fill(everything()) |>
+      select(-died) |>
+      pivot_longer(-c(pid, assess_type)) |>
+      group_by(name, pid) |>
+      summarise(duration = sum(value, na.rm = TRUE)) |>
+      group_by(name) |>
+      filter(duration != 0) |>
+      summarise(
+        median = median(duration),
+        lci = quantile(duration, 0.25),
+        uci = quantile(duration, 0.75)
+      ) |>
+      transmute(
+        agent = name,
+        exposure = paste0(median, " (", lci, "-", uci, ")")
+      ),
+    by = join_by(name == agent)
+  ) |>
+  transmute(
+    Antimicrobial = name,
+    Exposed = exposed,
+    Duration = exposure
+  ) |>
+  kbl(
+    caption = "Antimicrobial exposures in the cohort",
+    col.names =
+      c(
+        "Antimicrobial",
+        "Number Exposed", "Days of exposure\n(Median [IQR])"
+      )
+  ) |>
+  kable_classic(full_width = FALSE)
+```
+
+## Supplementary Figure 1
 
 ```{r}
 #| label: fig-sfig1
-#| fig-cap: "Parameter values for each of the models excluding covariate values"
+#| fig-cap: "parameter estimates (other than covariate coefficients) from fitted microbiome composition models, considering absolute read numbers assigned to a given taxa as the outcome variable. Tau is the decay constant of the exposure effect (in standardised units such that 1 unit = 55 days); phi is the overdispertion parameter from the negative binomial distribution; length scale is a measure of the within-person temporal correlation and how it decays over time; alpha is a measure of the magnitude of the within-person temporal correlation."
 #| fig.width: 8
 #| fig.height: 10
 
@@ -1546,9 +1710,11 @@ p_a / p_b / p_c + plot_layout(heights = c(1, 3, 3))
 ggsave(here("plots/sfig1.pdf"), width = 8, height = 10)
 ```
 
+## Supplementary Figure 2
+
 ```{r} 
 #| label: fig-sfig2
-#| fig-cap: "AMR genes present (excluding those genes present in <= 5 samples)"
+#| fig-cap: "Distribution of resistance genes identified by AMRFinder, coloured by AMRFinder-defined gene subclass, stratified by study arm."
 #| fig.height: 12
 #| fig.width: 12
 
@@ -1600,9 +1766,11 @@ df |>
 ggsave(here("plots/sfig2.pdf"), width = 10, height = 13)
 ```
 
+## Supplementary Figure 3
+
 ```{r} 
 #| label: fig-sfig3
-#| fig-cap: "Distribution of beta-lactamase genes stratified by AMRFinder-defined beta-lactamse subclass "
+#| fig-cap: "Distribution of identified resistance genes of the AMRFinder-defined subclasses beta-lactam, cephalosporin and carbapenem, stratified by whether the gene is a bacteroidates-specific gene."
 #| fig.height: 6
 #| fig.width: 10
 
@@ -1632,6 +1800,7 @@ df |>
 ggsave(here("plots/sfig3.pdf"), width = 10, height = 6)
 ```
 
+## Supplementary Table 2
 
 ```{r}
 #| label: tbl-stab2
@@ -1699,6 +1868,8 @@ df |>
     )
   )
 ```
+
+## Supplementary Figure 4
 
 ```{r}
 #| label: fig-sfig4
@@ -1781,10 +1952,11 @@ ggsave(here("plots/sfig4.pdf"), width = 13.5, height = 15)
 ```
 
 
+## Supplementary Figure 5
 
 ```{r}
 #| label: fig-sfig5
-#| fig-cap: "Parameter estimates from regression models"
+#| fig-cap: "Parameter values (x-axis) and 95% credible intervals from fitted models quantifying the effect of exposures on presence of AMR gene category (y-axis). Tau is the decay constant of the exposure effect (in standardised units such that 1 unit = 55 days); sigma is the standard deviation of the within-partipant correlation at time 0; length scale is a measure of the within-person temporal correlation and how it decays over time; alpha is a measure of the magnitude of the within-person temporal correlation."
 #| fig.height: 12
 #| fig.width: 12
 
@@ -1811,15 +1983,15 @@ mod_sum_df |>
   labs(y = "Parameter Value", x = "Outcome Variable")
 
 ggsave(here("plots/sfig5.pdf"), width = 14, height = 10)
-
 ```
 
+## Supplementary Figure 6
 
 ```{r}
 #| label: fig-sfig6
-#| fig-cap: "Parameter estimates from regression models"
-#| fig.height: 12
-#| fig.width: 12
+#| fig-cap: "Distribution of resistance genes in AMRFinder-defined subclasses that are increased in association with(from top) cephalosporin, ciprofloxacin, cotrimoxazole and amoxicillin exposure, and hospitalisation; increased here is defined as lower limit of 95% credible interval of odds ratio for presence of gene given exposure > 1."
+#| fig.height: 18
+#| fig.width: 14
 
 plot_df <-
 mod_sum_df |>
@@ -1834,9 +2006,7 @@ mod_sum_df |>
         grepl("5", parameter) ~ "Amoxicillin",
         TRUE ~ parameter
       )
-  )
-
-  |>
+  ) |>
   mutate(
     outcome_var = str_to_title(gsub("_", " ", outcome_var)),
     # outcome_var = str_wrap(outcome_var, width = 25),
@@ -1867,7 +2037,8 @@ plot_top_genes <- function(exposure, mod_sum_df, df) {
     mutate(name = gsub("_.*$", "", name)) |>
     mutate(
       subclass = tolower(subclass),
-      subclass = gsub("-|/", "_", subclass)
+      subclass = gsub("-|/", "_", subclass),
+    subclass = str_to_title(gsub("_", " ", subclass)),
     ) |>
     filter(subclass %in% gene_categories) |>
     right_join(
@@ -1926,5 +2097,364 @@ p_cef / p_cip / p_cotri / (p_amox + plot_spacer() + plot_spacer() ) / p_hosp  +
 theme(legend.position = "bottom")
 
 ggsave(here("plots/sfig6.pdf"), height = 18, width = 14)
+
+```
+
+## Supplementary Figure 7
+
+```{r}
+#| label: fig-sfig7
+#| fig-cap: "Hierarchically clustered heatmap of spearman correlation coefficient of presence of AMR gene subclass (row) and taxon (column) - Phylum (A), Order (B), Genus (C)."
+#| fig.width: 14
+#| fig.height: 24
+
+subclass_to_include <-
+  df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  group_by(subclass) |>
+  summarise(n = sum(amr_present)) |>
+  arrange(desc(n)) |>
+  filter(n >= 5) |>
+  pull(subclass)
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  filter(subclass %in% subclass_to_include) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+    otu_r_df |>
+      group_by(name, pid, arm, visit, Phylum) |>
+      summarise(value = sum(value)) |>
+      filter(Phylum %in% rank_bacterial_phyla$Phylum, Phylum != "") |>
+      mutate(Phylum = factor(Phylum, levels = rank_bacterial_phyla$Phylum)) |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Phylum, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat
+
+rownames(cormat) <- cormat$name
+
+cormat <- cor(select(cormat, -name), method = "spearman")
+
+
+
+p_s7a <-
+ggplotify::as.ggplot(
+pheatmap(
+ t( 
+    cormat[
+    rownames(cormat) %in% rank_bacterial_phyla$Phylum,
+    !dimnames(cormat)[[1]] %in% rank_bacterial_phyla$Phylum
+  ]
+      ),
+    color = viridis::viridis(option = "D", 100),
+    breaks =  seq(-0.7, 0.7, by = 1.4/100),
+    silent = TRUE
+)
+  )
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  filter(subclass %in% subclass_to_include) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+otu_r_df |>
+  filter(Phylum == "Proteobacteria") |>
+  group_by(name, pid, arm, visit, Order) |>
+  summarise(value = sum(value)) |>
+  filter(Order %in% rank_proteobacteria_orders$Order, Order != "") |>
+  mutate(Order = factor(Order, levels = rank_proteobacteria_orders$Order)) |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Order, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat_order
+
+
+
+rownames(cormat_order) <- cormat_order$name
+
+cormat_order <- cor(select(cormat_order, -name), method = "spearman")
+
+p_s7b <-
+ggplotify::as.ggplot(
+pheatmap(
+  t(
+  cormat_order[
+    rownames(cormat_order) %in% rank_proteobacteria_orders$Order,
+    !dimnames(cormat_order)[[1]] %in% rank_proteobacteria_orders$Order
+  ]
+    ),
+  color = viridis::viridis(option = "D", 100),
+    breaks =  seq(-0.7, 0.7, by = 1.4/100),
+    silent = TRUE
+)
+  )
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  filter(subclass %in% subclass_to_include) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+otu_r_df |>
+  filter(Order == "Enterobacterales") |>
+  group_by(name, pid, arm, visit, Genus) |>
+  summarise(value = sum(value)) |>
+  filter(Genus %in% rank_enterobacterales_genus$Genus, Genus != "") |>
+  filter(Genus != "") |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Genus, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat_genus
+
+
+
+rownames(cormat_genus) <- cormat_genus$name
+
+cormat_genus <- cor(select(cormat_genus, -name), method = "spearman")
+
+p_s7c <-
+ggplotify::as.ggplot(
+pheatmap(
+  t(
+  cormat_genus[
+    rownames(cormat_genus) %in% rank_enterobacterales_genus$Genus,
+    !dimnames(cormat_genus)[[1]] %in% rank_enterobacterales_genus$Genus
+  ]),
+  color = viridis::viridis(option = "D", 100),
+    breaks =  seq(-0.7, 0.7, by = 1.4/100),
+    silent = TRUE
+  ))
+  
+
+p_s7a / p_s7b / p_s7c + plot_annotation(tag_levels = "A") + plot_layout(guides =
+  "collect")
+
+ggsave(here("plots/sfig7.pdf"), width = 14, height = 24)
+
+```
+
+## Supplementary Figure 8
+
+```{r}
+#| label: fig-sfig8
+#| fig-cap: "Distribution of AMR genes/mutations identified in the E. coli metagenome-assembled genomes."
+#| fig.width: 12
+#| fig.height: 12
+
+
+
+cols <-
+  c(
+    pal_bmj()(9),
+    pal_brewer(palette = "Set3")(10),
+    pal_brewer(palette = "Paired")(10)
+  )
+
+bind_rows(
+  dfgene,
+) |>
+  filter(value == 1) |>
+  group_by(gene_symbol, type, subclass) |>
+  count() |>
+  # filter(n > 1) |>
+  ggplot(aes(fct_reorder(gene_symbol, n), n, color = subclass, fill = subclass)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw() +
+scale_fill_manual(values = unique(cols)) +
+scale_color_manual(values = unique(cols)) +
+labs(x = "Gene", y = "Number of Samples", fill = "Gene Subclass", color = "Gene Subclass") +
+guides(fill = guide_legend(ncol = 1), color = guide_legend(ncol = 1))
+
+ggsave(here("plots/sfig7.pdf"), width = 12, height = 12)
+
+```
+
+## Supplementary Figure 9
+
+
+```{r}
+#| label: fig-sfig9
+#| fig-cap: "Parameter estimates (x-axis) from models predicting presence of AMRFinder defined resistance determinants of a given subclass (y-axis) for a given parameter (panels) alpha = parameter quantifying magnitude of within-participant correlation of samples; beta_0 = intercept of linear predictor;  length_scale parameter quantifying temporal association of samples within-participant; tau = decay constant of effect of covariates; sigma = standard deviation of normal distribution encoding per-participant intercept."
+#| fig.width: 10
+#| fig.height: 6
+
+
+
+ecoli_mod_sum_df |>
+  filter(grepl("sigma|alpha|length|tau|beta_0", parameter)) |>
+  mutate(
+    outcome_var = str_to_title(gsub("_", " ", outcome_var)),
+    # outcome_var = str_wrap(outcome_var, width = 25),
+    outcome_var = factor(outcome_var, levels = ecoli_fact_levels),
+      ) |>
+  ggplot(aes(fct_rev(outcome_var), m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar(width = 0) +
+  coord_flip() +
+  facet_grid(~parameter, scales = "free") +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_manual(values = c("black", viridis_pal(option = "A")(6)[4])) +
+  labs(color = "", x = "Gene subclass", y = "Parameter Value") +
+  theme(legend.position = "none") +
+  scale_x_discrete(position = "top")
+
+ggsave(here("plots.sfig9.pdf"), width = 10, height = 6)
+
+```
+
+## Supplementary Figure 10
+
+```{r}
+#| label: fig-sfig10
+#| fig-cap: "Distribution of resistance genes in AMRFinder-defined subclasses that are increased E. coli metagenome-assembled genomes in association with (from top) cephalosporin, ciprofloxacin, cotrimoxazole and amoxicillin exposure, and hospitalisation; increased here is defined as lower limit of 95% credible interval of odds ratio for presence of gene given exposure > 1."
+#| fig.width: 14
+#| fig.height: 18
+
+plot_df <-
+ecoli_mod_sum_df |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(
+    parameter =
+      case_when(
+        grepl("1", parameter) ~ "Ceftriaxone",
+        grepl("2", parameter) ~ "Hospitalisation",
+        grepl("3", parameter) ~ "Cotrimoxazole",
+        grepl("4", parameter) ~ "Ciprofloxacin",
+        grepl("5", parameter) ~ "Amoxicillin",
+        TRUE ~ parameter
+      )
+  ) |>
+  mutate(
+    outcome_var = str_to_title(gsub("_", " ", outcome_var)),
+    # outcome_var = str_wrap(outcome_var, width = 25),
+    outcome_var = factor(outcome_var, levels = ecoli_fact_levels),
+    parameter = factor(
+      parameter,
+      levels = rev(c(
+        "Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole",
+        "Amoxicillin", "Hospitalisation"
+      ))
+    )
+  ) 
+
+
+
+plot_top_genes_ecoli <- function(exposure, mod_sum_df, dfgene) {
+ 
+  gene_categories <-
+    mod_sum_df |>
+      filter(parameter == exposure) |>
+      filter(ll > 0) |>
+      arrange(desc(m)) |>
+      pull(outcome_var)
+
+  dfgene |>
+    mutate(
+      subclass = tolower(subclass),
+      subclass = str_to_title(sub("-|/", " ", subclass))
+    ) |>
+    filter(subclass %in% gene_categories) |>
+    right_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)) |>
+        filter(lab_id %in% all_included_samples),
+       by = join_by(name == lab_id)
+        ) |>
+    filter(value == 1) |>
+    mutate(arm = as.factor(arm)) |>
+    mutate(
+    subclass = factor(
+        str_to_title(sub("_", " ", subclass)),
+        levels = gsub("_", " ", gene_categories))
+    ) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    ))) |>
+    ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
+    geom_bar() +
+    facet_wrap(~ subclass, scales = "free", ncol = 4,
+      labeller = labeller(subclass = label_wrap_gen(25))) +
+    coord_flip() +
+    labs(title = paste0("Exposure: ", exposure),
+         x = "Gene", y = "Number of Samples", fill = "") +
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    scale_fill_manual(
+    values = c(
+      "Hospitalised\nAntibiotic" = viridis_pal()(3)[1],
+      "Hospitalised\nNo antibiotic" = viridis_pal()(3)[2],
+      "Community\nNo antibiotic" = viridis_pal()(3)[3]), 
+    limits = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic")
+    )
+  
+
+
+}
+
+p_cef <- plot_top_genes_ecoli("Ceftriaxone", plot_df, dfgene)
+p_cip <- plot_top_genes_ecoli("Ciprofloxacin", plot_df, dfgene)
+p_cotri <- plot_top_genes_ecoli("Cotrimoxazole", plot_df, dfgene)
+p_amox <- plot_top_genes_ecoli("Amoxicillin", plot_df, dfgene)
+p_hosp <- plot_top_genes_ecoli("Hospitalisation", plot_df, dfgene)
+
+
+p_cef / (p_cip + plot_spacer()) / (p_cotri + plot_spacer() + plot_spacer() + plot_spacer()) / (p_amox + plot_spacer()) / (p_hosp  + plot_spacer())  +
+  plot_layout(heights = c(4,2,1,2,2), guides = "collect") &
+theme(legend.position = "bottom")
+
+ggsave(here("plots/sfig8.pdf"), height = 18, width = 14)
 
 ```
