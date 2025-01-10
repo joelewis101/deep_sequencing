@@ -1384,7 +1384,6 @@ p_3e <-
 p_3a / p_3b / p_3c / (p_3d + p_3e) + plot_layout(height = c(2.2, 1, 5, 1)) + plot_annotation(tag_levels = "A")
 
 ggsave(here("plots/fig3.pdf"), width = 16, height = 18)
-
 ```
 
 ## Figure 4
@@ -1468,6 +1467,13 @@ metadata <-
 ecoli_mod_sum_df <-
   read_rds(here("data_processed/ECOLIgp_mod_sum_df.rda"))
 
+ecoli_poppunk_summary <-
+  read_csv(here("data_raw/ECO_metagenome_vs_isolate_poppunk_summary.csv"),
+    col_names = c("cluster", "isolate", "metagenomic"), skip = 1
+  ) |>
+  janitor::clean_names() |>
+  select(1:3)
+
 
 ecoli_fact_levels <-
   ecoli_mod_sum_df |>
@@ -1476,8 +1482,20 @@ ecoli_fact_levels <-
   arrange(desc(m)) |>
   pull(outcome_var)
 
-p_4b <-
-ecoli_mod_sum_df |>
+p_4a <-
+ecoli_poppunk_summary |>
+  pivot_longer(-cluster) |>
+  mutate(name = str_to_title(paste0(name, " diversity"))) |>
+  ggplot(aes(cluster, value, fill = name)) +
+    geom_col() +
+    facet_wrap(~ name, ncol = 1, scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 5, angle = 45, hjust = 1), legend.position =
+"none") +
+    labs(y = "Number of samples", x = "PopPUNK cluster") 
+
+p_4c <-
+  ecoli_mod_sum_df |>
   filter(grepl("beta\\[", parameter)) |>
   mutate(
     parameter =
@@ -1515,30 +1533,36 @@ ecoli_mod_sum_df |>
   scale_x_discrete(position = "top")
 
 
-p_4a <-
+p_4b <-
   dfgene |>
   group_by(name, subclass) |>
   summarise(present = any(value == 1)) |>
-  mutate(subclass = tolower(subclass),
-    subclass = str_to_title(gsub("\\/", " ", subclass))) |>
+  mutate(
+    subclass = tolower(subclass),
+    subclass = str_to_title(gsub("\\/", " ", subclass))
+  ) |>
   group_by(subclass) |>
-  summarise(n = sum(present),
-    N = length(present)) |>
+  summarise(
+    n = sum(present),
+    N = length(present)
+  ) |>
   rowwise() |>
-  mutate(pr = n/N,
-    lci = binom.test(n,N)$conf.int[[1]],
-    uci = binom.test(n,N)$conf.int[[2]]) |>
+  mutate(
+    pr = n / N,
+    lci = binom.test(n, N)$conf.int[[1]],
+    uci = binom.test(n, N)$conf.int[[2]]
+  ) |>
   ggplot(aes(fct_reorder(subclass, pr), pr, ymin = lci, ymax = uci)) +
   geom_point() +
   geom_errorbar(width = 0) +
   coord_flip() +
   theme_bw() +
-labs(y = "Prevalence", x = "Gene Subclass")
+  labs(y = "Prevalence", x = "Gene Subclass") +
+  scale_x_discrete(position = "top")
 
-p_4a / p_4b + plot_layout(heights = c(1,1)) + plot_annotation(tag_levels = "A")
+p_4a / p_4b / p_4c + plot_layout(heights = c(1, 1, 1)) + plot_annotation(tag_levels = "A")
 
-ggsave(here("plots/fig4.pdf"), width = 13, height = 8)
-
+ggsave(here("plots/fig4.pdf"), width = 13, height = 12)
 ```
 
 
@@ -1994,7 +2018,7 @@ ggsave(here("plots/sfig5.pdf"), width = 14, height = 10)
 #| fig.width: 14
 
 plot_df <-
-mod_sum_df |>
+  mod_sum_df |>
   filter(grepl("beta\\[", parameter)) |>
   mutate(
     parameter =
@@ -2018,70 +2042,72 @@ mod_sum_df |>
         "Amoxicillin", "Hospitalisation"
       ))
     )
-  ) 
+  )
 
 
 plot_top_genes <- function(exposure, mod_sum_df, df) {
- 
   gene_categories <-
     mod_sum_df |>
-      filter(parameter == exposure) |>
-      filter(ll > 0) |>
-      arrange(desc(m)) |>
-      pull(outcome_var)
+    filter(parameter == exposure) |>
+    filter(ll > 0) |>
+    arrange(desc(m)) |>
+    pull(outcome_var)
 
   df |>
     mutate(gene_symbol = make_clean_names(gene_symbol)) |>
-  pivot_longer(-c(gene_symbol, class, subclass)) |>
+    pivot_longer(-c(gene_symbol, class, subclass)) |>
     filter(!grepl("^nc", name)) |>
     mutate(name = gsub("_.*$", "", name)) |>
     mutate(
       subclass = tolower(subclass),
       subclass = gsub("-|/", "_", subclass),
-    subclass = str_to_title(gsub("_", " ", subclass)),
+      subclass = str_to_title(gsub("_", " ", subclass)),
     ) |>
     filter(subclass %in% gene_categories) |>
     right_join(
       semi_join(
-      btESBL_stoolESBL |>
-        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
-        mutate(lab_id = tolower(lab_id)),
-      df2,
-      by = join_by(lab_id == name)
-    ),
-       by = join_by(name == lab_id)
-        ) |>
+        btESBL_stoolESBL |>
+          select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+          mutate(lab_id = tolower(lab_id)),
+        df2,
+        by = join_by(lab_id == name)
+      ),
+      by = join_by(name == lab_id)
+    ) |>
     filter(value == 1) |>
     mutate(arm = as.factor(arm)) |>
     mutate(
-    subclass = factor(
+      subclass = factor(
         gsub("_", " ", subclass),
-        levels = gsub("_", " ", gene_categories))
+        levels = gsub("_", " ", gene_categories)
+      )
     ) |>
-  mutate(
-    arm = case_when(
-      arm == 1 ~ "Hospitalised\nAntibiotic",
-      arm == 2 ~ "Hospitalised\nNo antibiotic",
-      arm == 3 ~ "Community\nNo antibiotic"
-    ),
-    arm = factor(arm, levels = c(
-      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
-      "Community\nNo antibiotic"
-    )),
-    subclass = str_to_title(subclass)
-  ) |>
+    mutate(
+      arm = case_when(
+        arm == 1 ~ "Hospitalised\nAntibiotic",
+        arm == 2 ~ "Hospitalised\nNo antibiotic",
+        arm == 3 ~ "Community\nNo antibiotic"
+      ),
+      arm = factor(arm, levels = c(
+        "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+        "Community\nNo antibiotic"
+      )),
+      subclass = str_to_title(subclass)
+    ) |>
     ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
     geom_bar() +
-    facet_wrap(~ subclass, scales = "free", ncol = 4,
-      labeller = labeller(subclass = label_wrap_gen(25))) +
+    facet_wrap(~subclass,
+      scales = "free", ncol = 4,
+      labeller = labeller(subclass = label_wrap_gen(25))
+    ) +
     coord_flip() +
-    labs(title = paste0("Exposure: ", exposure),
-         x = "Gene", y = "Number of Samples", fill = "") +
+    labs(
+      title = paste0("Exposure: ", exposure),
+      x = "Gene", y = "Number of Samples", fill = ""
+    ) +
     theme_bw() +
     scale_fill_viridis_d() +
     theme(legend.position = "bottom")
-
-
 }
 
 
@@ -2092,12 +2118,11 @@ p_amox <- plot_top_genes("Amoxicillin", plot_df, df)
 p_hosp <- plot_top_genes("Hospitalisation", plot_df, df)
 
 
-p_cef / p_cip / p_cotri / (p_amox + plot_spacer() + plot_spacer() ) / p_hosp  + 
-  plot_layout(heights = c(4,1,2,1,5), guides = "collect") &
-theme(legend.position = "bottom")
+p_cef / p_cip / p_cotri / (p_amox + plot_spacer() + plot_spacer()) / p_hosp +
+  plot_layout(heights = c(4, 1, 2, 1, 5), guides = "collect") &
+  theme(legend.position = "bottom")
 
 ggsave(here("plots/sfig6.pdf"), height = 18, width = 14)
-
 ```
 
 ## Supplementary Figure 7
@@ -2159,18 +2184,18 @@ cormat <- cor(select(cormat, -name), method = "spearman")
 
 
 p_s7a <-
-ggplotify::as.ggplot(
-pheatmap(
- t( 
-    cormat[
-    rownames(cormat) %in% rank_bacterial_phyla$Phylum,
-    !dimnames(cormat)[[1]] %in% rank_bacterial_phyla$Phylum
-  ]
+  ggplotify::as.ggplot(
+    pheatmap(
+      t(
+        cormat[
+          rownames(cormat) %in% rank_bacterial_phyla$Phylum,
+          !dimnames(cormat)[[1]] %in% rank_bacterial_phyla$Phylum
+        ]
       ),
-    color = viridis::viridis(option = "D", 100),
-    breaks =  seq(-0.7, 0.7, by = 1.4/100),
-    silent = TRUE
-)
+      color = viridis::viridis(option = "D", 100),
+      breaks = seq(-0.7, 0.7, by = 1.4 / 100),
+      silent = TRUE
+    )
   )
 
 
@@ -2188,12 +2213,12 @@ df |>
   filter(subclass %in% subclass_to_include) |>
   pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
   left_join(
-otu_r_df |>
-  filter(Phylum == "Proteobacteria") |>
-  group_by(name, pid, arm, visit, Order) |>
-  summarise(value = sum(value)) |>
-  filter(Order %in% rank_proteobacteria_orders$Order, Order != "") |>
-  mutate(Order = factor(Order, levels = rank_proteobacteria_orders$Order)) |>
+    otu_r_df |>
+      filter(Phylum == "Proteobacteria") |>
+      group_by(name, pid, arm, visit, Order) |>
+      summarise(value = sum(value)) |>
+      filter(Order %in% rank_proteobacteria_orders$Order, Order != "") |>
+      mutate(Order = factor(Order, levels = rank_proteobacteria_orders$Order)) |>
       ungroup() |>
       pivot_wider(id_cols = name, names_from = Order, values_from = value),
     by = join_by(name)
@@ -2207,18 +2232,18 @@ rownames(cormat_order) <- cormat_order$name
 cormat_order <- cor(select(cormat_order, -name), method = "spearman")
 
 p_s7b <-
-ggplotify::as.ggplot(
-pheatmap(
-  t(
-  cormat_order[
-    rownames(cormat_order) %in% rank_proteobacteria_orders$Order,
-    !dimnames(cormat_order)[[1]] %in% rank_proteobacteria_orders$Order
-  ]
-    ),
-  color = viridis::viridis(option = "D", 100),
-    breaks =  seq(-0.7, 0.7, by = 1.4/100),
-    silent = TRUE
-)
+  ggplotify::as.ggplot(
+    pheatmap(
+      t(
+        cormat_order[
+          rownames(cormat_order) %in% rank_proteobacteria_orders$Order,
+          !dimnames(cormat_order)[[1]] %in% rank_proteobacteria_orders$Order
+        ]
+      ),
+      color = viridis::viridis(option = "D", 100),
+      breaks = seq(-0.7, 0.7, by = 1.4 / 100),
+      silent = TRUE
+    )
   )
 
 df |>
@@ -2235,12 +2260,12 @@ df |>
   filter(subclass %in% subclass_to_include) |>
   pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
   left_join(
-otu_r_df |>
-  filter(Order == "Enterobacterales") |>
-  group_by(name, pid, arm, visit, Genus) |>
-  summarise(value = sum(value)) |>
-  filter(Genus %in% rank_enterobacterales_genus$Genus, Genus != "") |>
-  filter(Genus != "") |>
+    otu_r_df |>
+      filter(Order == "Enterobacterales") |>
+      group_by(name, pid, arm, visit, Genus) |>
+      summarise(value = sum(value)) |>
+      filter(Genus %in% rank_enterobacterales_genus$Genus, Genus != "") |>
+      filter(Genus != "") |>
       ungroup() |>
       pivot_wider(id_cols = name, names_from = Genus, values_from = value),
     by = join_by(name)
@@ -2254,24 +2279,27 @@ rownames(cormat_genus) <- cormat_genus$name
 cormat_genus <- cor(select(cormat_genus, -name), method = "spearman")
 
 p_s7c <-
-ggplotify::as.ggplot(
-pheatmap(
-  t(
-  cormat_genus[
-    rownames(cormat_genus) %in% rank_enterobacterales_genus$Genus,
-    !dimnames(cormat_genus)[[1]] %in% rank_enterobacterales_genus$Genus
-  ]),
-  color = viridis::viridis(option = "D", 100),
-    breaks =  seq(-0.7, 0.7, by = 1.4/100),
-    silent = TRUE
-  ))
-  
+  ggplotify::as.ggplot(
+    pheatmap(
+      t(
+        cormat_genus[
+          rownames(cormat_genus) %in% rank_enterobacterales_genus$Genus,
+          !dimnames(cormat_genus)[[1]] %in% rank_enterobacterales_genus$Genus
+        ]
+      ),
+      color = viridis::viridis(option = "D", 100),
+      breaks = seq(-0.7, 0.7, by = 1.4 / 100),
+      silent = TRUE
+    )
+  )
 
-p_s7a / p_s7b / p_s7c + plot_annotation(tag_levels = "A") + plot_layout(guides =
-  "collect")
+
+p_s7a / p_s7b / p_s7c + plot_annotation(tag_levels = "A") + plot_layout(
+  guides =
+    "collect"
+)
 
 ggsave(here("plots/sfig7.pdf"), width = 14, height = 24)
-
 ```
 
 ## Supplementary Figure 8
@@ -2302,13 +2330,12 @@ bind_rows(
   geom_col() +
   coord_flip() +
   theme_bw() +
-scale_fill_manual(values = unique(cols)) +
-scale_color_manual(values = unique(cols)) +
-labs(x = "Gene", y = "Number of Samples", fill = "Gene Subclass", color = "Gene Subclass") +
-guides(fill = guide_legend(ncol = 1), color = guide_legend(ncol = 1))
+  scale_fill_manual(values = unique(cols)) +
+  scale_color_manual(values = unique(cols)) +
+  labs(x = "Gene", y = "Number of Samples", fill = "Gene Subclass", color = "Gene Subclass") +
+  guides(fill = guide_legend(ncol = 1), color = guide_legend(ncol = 1))
 
 ggsave(here("plots/sfig7.pdf"), width = 12, height = 12)
-
 ```
 
 ## Supplementary Figure 9
@@ -2328,7 +2355,7 @@ ecoli_mod_sum_df |>
     outcome_var = str_to_title(gsub("_", " ", outcome_var)),
     # outcome_var = str_wrap(outcome_var, width = 25),
     outcome_var = factor(outcome_var, levels = ecoli_fact_levels),
-      ) |>
+  ) |>
   ggplot(aes(fct_rev(outcome_var), m, ymin = ll, ymax = hh)) +
   geom_point() +
   geom_errorbar(width = 0) +
@@ -2341,8 +2368,7 @@ ecoli_mod_sum_df |>
   theme(legend.position = "none") +
   scale_x_discrete(position = "top")
 
-ggsave(here("plots.sfig9.pdf"), width = 10, height = 6)
-
+ggsave(here("plots/sfig9.pdf"), width = 10, height = 6)
 ```
 
 ## Supplementary Figure 10
@@ -2354,7 +2380,7 @@ ggsave(here("plots.sfig9.pdf"), width = 10, height = 6)
 #| fig.height: 18
 
 plot_df <-
-ecoli_mod_sum_df |>
+  ecoli_mod_sum_df |>
   filter(grepl("beta\\[", parameter)) |>
   mutate(
     parameter =
@@ -2378,18 +2404,17 @@ ecoli_mod_sum_df |>
         "Amoxicillin", "Hospitalisation"
       ))
     )
-  ) 
+  )
 
 
 
 plot_top_genes_ecoli <- function(exposure, mod_sum_df, dfgene) {
- 
   gene_categories <-
     mod_sum_df |>
-      filter(parameter == exposure) |>
-      filter(ll > 0) |>
-      arrange(desc(m)) |>
-      pull(outcome_var)
+    filter(parameter == exposure) |>
+    filter(ll > 0) |>
+    arrange(desc(m)) |>
+    pull(outcome_var)
 
   dfgene |>
     mutate(
@@ -2402,46 +2427,51 @@ plot_top_genes_ecoli <- function(exposure, mod_sum_df, dfgene) {
         select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
         mutate(lab_id = tolower(lab_id)) |>
         filter(lab_id %in% all_included_samples),
-       by = join_by(name == lab_id)
-        ) |>
+      by = join_by(name == lab_id)
+    ) |>
     filter(value == 1) |>
     mutate(arm = as.factor(arm)) |>
     mutate(
-    subclass = factor(
+      subclass = factor(
         str_to_title(sub("_", " ", subclass)),
-        levels = gsub("_", " ", gene_categories))
+        levels = gsub("_", " ", gene_categories)
+      )
     ) |>
-  mutate(
-    arm = case_when(
-      arm == 1 ~ "Hospitalised\nAntibiotic",
-      arm == 2 ~ "Hospitalised\nNo antibiotic",
-      arm == 3 ~ "Community\nNo antibiotic"
-    ),
-    arm = factor(arm, levels = c(
-      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
-      "Community\nNo antibiotic"
-    ))) |>
+    mutate(
+      arm = case_when(
+        arm == 1 ~ "Hospitalised\nAntibiotic",
+        arm == 2 ~ "Hospitalised\nNo antibiotic",
+        arm == 3 ~ "Community\nNo antibiotic"
+      ),
+      arm = factor(arm, levels = c(
+        "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+        "Community\nNo antibiotic"
+      ))
+    ) |>
     ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
     geom_bar() +
-    facet_wrap(~ subclass, scales = "free", ncol = 4,
-      labeller = labeller(subclass = label_wrap_gen(25))) +
+    facet_wrap(~subclass,
+      scales = "free", ncol = 4,
+      labeller = labeller(subclass = label_wrap_gen(25))
+    ) +
     coord_flip() +
-    labs(title = paste0("Exposure: ", exposure),
-         x = "Gene", y = "Number of Samples", fill = "") +
+    labs(
+      title = paste0("Exposure: ", exposure),
+      x = "Gene", y = "Number of Samples", fill = ""
+    ) +
     theme_bw() +
     theme(legend.position = "bottom") +
     scale_fill_manual(
-    values = c(
-      "Hospitalised\nAntibiotic" = viridis_pal()(3)[1],
-      "Hospitalised\nNo antibiotic" = viridis_pal()(3)[2],
-      "Community\nNo antibiotic" = viridis_pal()(3)[3]), 
-    limits = c(
-      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
-      "Community\nNo antibiotic")
+      values = c(
+        "Hospitalised\nAntibiotic" = viridis_pal()(3)[1],
+        "Hospitalised\nNo antibiotic" = viridis_pal()(3)[2],
+        "Community\nNo antibiotic" = viridis_pal()(3)[3]
+      ),
+      limits = c(
+        "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+        "Community\nNo antibiotic"
+      )
     )
-  
-
-
 }
 
 p_cef <- plot_top_genes_ecoli("Ceftriaxone", plot_df, dfgene)
@@ -2451,10 +2481,9 @@ p_amox <- plot_top_genes_ecoli("Amoxicillin", plot_df, dfgene)
 p_hosp <- plot_top_genes_ecoli("Hospitalisation", plot_df, dfgene)
 
 
-p_cef / (p_cip + plot_spacer()) / (p_cotri + plot_spacer() + plot_spacer() + plot_spacer()) / (p_amox + plot_spacer()) / (p_hosp  + plot_spacer())  +
-  plot_layout(heights = c(4,2,1,2,2), guides = "collect") &
-theme(legend.position = "bottom")
+p_cef / (p_cip + plot_spacer()) / (p_cotri + plot_spacer() + plot_spacer() + plot_spacer()) / (p_amox + plot_spacer()) / (p_hosp + plot_spacer()) +
+  plot_layout(heights = c(4, 2, 1, 2, 2), guides = "collect") &
+  theme(legend.position = "bottom")
 
 ggsave(here("plots/sfig8.pdf"), height = 18, width = 14)
-
 ```
