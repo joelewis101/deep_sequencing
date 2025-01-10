@@ -41,7 +41,7 @@ model (AMR gene presence/absence) with random intercept by partcicipant
 
 - `scripts/model-amr.R` fits and saves the models - the latter scripts need these
 outputs to run 
-- `scripts/model-amr-diagnostics-GP.qmd` pulls and plots
+- `scripts/model-amr-diagnostics-GP.qmd` pulls and plots diagnostics
 - `scripts/building-correlated-random-eff-mod.qmd` outlines the AMR model and
 the results from it 
 - `scripts/resistome.qmd` is a description of the dataset and outputs of the models
