@@ -1381,9 +1381,65 @@ p_3e <-
   labs(color = "Exposure", fill = "Exposure")
 
 
-p_3a / p_3b / p_3c / (p_3d + p_3e) + plot_layout(height = c(2.2, 1, 5, 1)) + plot_annotation(tag_levels = "A")
+mod_sum_df_bact <-
+  read_rds(here("data_processed/gp_mod_sum_df_bacteroides.rda"))
 
-ggsave(here("plots/fig3.pdf"), width = 16, height = 18)
+p_3f <-
+mod_sum_df_bact |>
+  filter(grepl("beta|sigma|alpha|length|tau", parameter)) |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(
+    bacteroides_associated =
+      if_else(grepl("_b$", outcome_var),
+      "Yes", "No"),
+    bacteroides_associated = factor(bacteroides_associated, levels =
+c("Yes", "No"))
+  ) |>
+  mutate(
+    parameter =
+      case_when(
+        grepl("1", parameter) ~ "Ceftriaxone",
+        grepl("2", parameter) ~ "Hospitalisation",
+        grepl("3", parameter) ~ "Cotrimoxazole",
+        grepl("4", parameter) ~ "Ciprofloxacin",
+        grepl("5", parameter) ~ "Amoxicillin",
+        TRUE ~ parameter
+      )
+  ) |>
+  mutate(parameter = factor(parameter, 
+    levels = rev(c(
+    "Ceftriaxone",
+    "Ciprofloxacin", "Amoxicillin", "Cotrimoxazole",
+    "Hospitalisation")
+  ))) |>
+  mutate(
+    outcome_var = gsub("_b", "", outcome_var),
+    outcome_var = str_to_title(gsub("_", "-", outcome_var)),
+    outcome_var = factor(outcome_var,
+    levels = rev(c("Cephalosporin", "Carbapenem", "Beta-Lactam", "Methicillin")))
+  ) |>
+  ggplot(aes(outcome_var, m,
+    group = bacteroides_associated,
+    color = bacteroides_associated,
+    shape = bacteroides_associated,
+    ymin = ll, ymax = hh
+  )) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(position = position_dodge(width = 0.5), width = 0) +
+  coord_flip() +
+  facet_wrap(~parameter, nrow = 1) +
+  scale_x_reordered() +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  theme(legend.position = "bottom") +
+  labs(x = "Gene subclass", y = "Parameter Value") + 
+  scale_color_brewer(palette = "Dark2", name = "Bacteroides\nAssociated") +
+  scale_shape_manual(values = c(4,16), name= "Bacteroides\nAssociated")
+
+
+p_3a / p_3b / p_3c / (p_3d + p_3e) / p_3f + plot_layout(height = c(2.2, 1, 5, 1, 1)) + plot_annotation(tag_levels = "A")
+
+ggsave(here("plots/fig3.pdf"), width = 16, height = 20)
 ```
 
 ## Figure 4
@@ -1483,16 +1539,18 @@ ecoli_fact_levels <-
   pull(outcome_var)
 
 p_4a <-
-ecoli_poppunk_summary |>
+  ecoli_poppunk_summary |>
   pivot_longer(-cluster) |>
   mutate(name = str_to_title(paste0(name, " diversity"))) |>
   ggplot(aes(cluster, value, fill = name)) +
-    geom_col() +
-    facet_wrap(~ name, ncol = 1, scales = "free_y") +
-    theme_bw() +
-    theme(axis.text.x = element_text(size = 5, angle = 45, hjust = 1), legend.position =
-"none") +
-    labs(y = "Number of samples", x = "PopPUNK cluster") 
+  geom_col() +
+  facet_wrap(~name, ncol = 1, scales = "free_y") +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(size = 5, angle = 45, hjust = 1), legend.position =
+      "none"
+  ) +
+  labs(y = "Number of samples", x = "PopPUNK cluster")
 
 p_4c <-
   ecoli_mod_sum_df |>

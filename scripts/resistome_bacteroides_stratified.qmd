@@ -1,0 +1,112 @@
+---
+title: Describe E. coli bin resistome
+date: today
+date-format: "D MMMM YYYY"
+format:
+  html:
+    embed-resources: true
+engine: knitr
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Overview
+
+Stratify beta lactam genes by whether they are bacteroides-resitrcited or not
+and refit models - outputs here
+
+
+## Model outputs 
+
+```{r}
+#| label: fig-amrgenesmod
+#| fig-cap: "Parameter estimates from regression models"
+#| fig.height: 10
+#| fig.width: 12
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(blantyreESBL)
+library(patchwork)
+library(kableExtra)
+library(tidytext)
+library(bayesplot)
+library(cmdstanr)
+
+# raw data for plotting actual genes
+mod_sum_df <-
+  read_rds(here("data_processed/gp_mod_sum_df_bacteroides.rda"))
+
+mod_sum_df |>
+  filter(grepl("beta|sigma|alpha|length|tau", parameter)) |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(
+    parameter =
+      case_when(
+        grepl("1", parameter) ~ "cephalosporin",
+        grepl("2", parameter) ~ "hospitalisation",
+        grepl("3", parameter) ~ "cotrimoxazole",
+        grepl("4", parameter) ~ "ciprofloxacin",
+        grepl("5", parameter) ~ "amoxicillin",
+        TRUE ~ parameter
+      )
+  ) |>
+  filter(parameter != "hospitalisation") |>
+  mutate(parameter = factor(parameter, levels = c(
+    "cephalosporin",
+    "ciprofloxacin", "amoxicillin", "cotrimoxazole"
+  ))) |>
+  mutate(
+    outcome_var = gsub("_", " ", outcome_var),
+    outcome_var = as.factor(outcome_var),
+    outcome_var = reorder_within(outcome_var, m, parameter)
+  ) |>
+  ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() +
+  facet_wrap(~parameter, scales = "free", ncol = 2) +
+  scale_x_reordered() +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed")
+```
+
+```{r}
+#| label: fig-amrgenesmod2
+#| fig-cap: "Parameter estimates from regression models"
+#| fig.height: 12
+#| fig.width: 12
+
+mod_sum_df |>
+  filter(grepl("beta|sigma|alpha|length|tau", parameter)) |>
+  filter(!grepl("beta\\[[1|3|4|5]", parameter)) |>
+  mutate(
+    parameter =
+      case_when(
+        grepl("1", parameter) ~ "cephalosporin",
+        grepl("2", parameter) ~ "hospitalisation",
+        grepl("3", parameter) ~ "cotrimoxazole",
+        grepl("4", parameter) ~ "ciprofloxacin",
+        grepl("5", parameter) ~ "amoxicillin",
+        TRUE ~ parameter
+      )
+  ) |>
+  mutate(
+    outcome_var = gsub("_", " ", outcome_var),
+    outcome_var = as.factor(outcome_var),
+    outcome_var = reorder_within(outcome_var, m, parameter)
+  ) |>
+  ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() +
+  facet_wrap(~parameter, scales = "free", ncol = 2) +
+  scale_x_reordered() +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed")
+```
+# Conclusion
+
