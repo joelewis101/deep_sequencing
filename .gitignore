@@ -14,7 +14,6 @@ negbin_gp_nopreds
 .Rhistory
 .Rproj.user
 documents/
-data_processed/*
 hi_c_sequencing/
 amr-gene-multilevel-gp-cholfactv2
 amr-gene-logreg
