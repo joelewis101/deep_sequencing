@@ -552,6 +552,7 @@ p_1f <-
 (((p_1a + (p_1b / p_1c)) / p_1d / (p_1e + p_1f)) + plot_layout(guides = "collect", heights = c(1, 0.6, 1)) & theme(legend.position = "right")) + plot_annotation(tag_levels = "A")
 
 ggsave(here("plots/fig1.pdf"), width = 11, height = 11)
+ggsave(here("plots/fig1.svg"), width = 11, height = 11)
 ```
 
 ## Figure 2
@@ -964,6 +965,7 @@ p_2e <-
 
 
 ggsave(here("plots/fig2.pdf"), width = 15, height = 17)
+ggsave(here("plots/fig2.svg"), width = 15, height = 17)
 ```
 
 ## Figure 3
@@ -1440,6 +1442,7 @@ c("Yes", "No"))
 p_3a / p_3b / p_3c / (p_3d + p_3e) / p_3f + plot_layout(height = c(2.2, 1, 5, 1, 1)) + plot_annotation(tag_levels = "A")
 
 ggsave(here("plots/fig3.pdf"), width = 16, height = 20)
+ggsave(here("plots/fig3.svg"), width = 16, height = 20)
 ```
 
 ## Figure 4
@@ -1621,6 +1624,7 @@ p_4b <-
 p_4a / p_4b / p_4c + plot_layout(heights = c(1, 1, 1)) + plot_annotation(tag_levels = "A")
 
 ggsave(here("plots/fig4.pdf"), width = 13, height = 12)
+ggsave(here("plots/fig4.svg"), width = 13, height = 12)
 ```
 
 
@@ -1789,6 +1793,7 @@ p_c <-
 
 p_a / p_b / p_c + plot_layout(heights = c(1, 3, 3))
 
+ggsave(here("plots/sfig1.svg"), width = 8, height = 10)
 ggsave(here("plots/sfig1.pdf"), width = 8, height = 10)
 ```
 
@@ -1846,6 +1851,7 @@ df |>
 
 
 ggsave(here("plots/sfig2.pdf"), width = 10, height = 13)
+ggsave(here("plots/sfig2.svg"), width = 10, height = 13)
 ```
 
 ## Supplementary Figure 3
@@ -1880,6 +1886,7 @@ df |>
   labs(x = "Gene", fill = "", y = "Number of samples")
 
 ggsave(here("plots/sfig3.pdf"), width = 10, height = 6)
+ggsave(here("plots/sfig3.svg"), width = 10, height = 6)
 ```
 
 ## Supplementary Table 2
@@ -2031,6 +2038,7 @@ df |>
   theme(legend.position = "bottom")
 
 ggsave(here("plots/sfig4.pdf"), width = 13.5, height = 15)
+ggsave(here("plots/sfig4.svg"), width = 13.5, height = 15)
 ```
 
 
@@ -2065,6 +2073,7 @@ mod_sum_df |>
   labs(y = "Parameter Value", x = "Outcome Variable")
 
 ggsave(here("plots/sfig5.pdf"), width = 14, height = 10)
+ggsave(here("plots/sfig5.svg"), width = 14, height = 10)
 ```
 
 ## Supplementary Figure 6
@@ -2181,6 +2190,7 @@ p_cef / p_cip / p_cotri / (p_amox + plot_spacer() + plot_spacer()) / p_hosp +
   theme(legend.position = "bottom")
 
 ggsave(here("plots/sfig6.pdf"), height = 18, width = 14)
+ggsave(here("plots/sfig6.svg"), height = 18, width = 14)
 ```
 
 ## Supplementary Figure 7
@@ -2358,6 +2368,7 @@ p_s7a / p_s7b / p_s7c + plot_annotation(tag_levels = "A") + plot_layout(
 )
 
 ggsave(here("plots/sfig7.pdf"), width = 14, height = 24)
+ggsave(here("plots/sfig7.svg"), width = 14, height = 24)
 ```
 
 ## Supplementary Figure 8
@@ -2394,6 +2405,7 @@ bind_rows(
   guides(fill = guide_legend(ncol = 1), color = guide_legend(ncol = 1))
 
 ggsave(here("plots/sfig7.pdf"), width = 12, height = 12)
+ggsave(here("plots/sfig7.svg"), width = 12, height = 12)
 ```
 
 ## Supplementary Figure 9
@@ -2427,6 +2439,7 @@ ecoli_mod_sum_df |>
   scale_x_discrete(position = "top")
 
 ggsave(here("plots/sfig9.pdf"), width = 10, height = 6)
+ggsave(here("plots/sfig9.svg"), width = 10, height = 6)
 ```
 
 ## Supplementary Figure 10
@@ -2544,4 +2557,5 @@ p_cef / (p_cip + plot_spacer()) / (p_cotri + plot_spacer() + plot_spacer() + plo
   theme(legend.position = "bottom")
 
 ggsave(here("plots/sfig8.pdf"), height = 18, width = 14)
+ggsave(here("plots/sfig8.svg"), height = 18, width = 14)
 ```
