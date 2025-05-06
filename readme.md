@@ -28,6 +28,13 @@ results as htmls.
 
 ## Fitting the models
 
+### Dependencies
+
+- R (tested on v4.4.2)
+- Stan (tested with cmdstanR v0.8.1 using cmdstan v2.35)
+- the blantyreESBL R package (v1.4.1) contains all the clinical metadata - see
+[https://joelewis101.github.io/blantyreESBL/] for installation instructions.
+
 ### Model code
 
 All of the final models include a within-participant correlation structure to account
