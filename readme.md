@@ -7,6 +7,8 @@ Code for analysis of the DASSIM metagenomic samples.
 - Analysis scripts are in `scripts/` as quarto files to generate `.html`
 analysis files - there are a bunch of these, detailed below in "fitting
 the models"
+- quarto is a scientific publishing system - indtallation details at
+[https://quarto.org/]
 - stan models are in the root directory of the repo
 - data is in `data_raw/` 
 
@@ -72,7 +74,7 @@ diagnostics
 
 ### Archived models
 
-Not used in the final analysis
+Not used in the final analysis - in the `archive/` folder
 
 - `negbin-randintercept.stan` negative binomial absolute read count model with random
 - intercept by participant
@@ -87,4 +89,4 @@ model (AMR gene presence/absence) with random intercept by partcicipant
 ## Other scripts
 
 `scripts/simulate_from_fitted_models.R` will run some simulations from the posterior and
-generate the plots used in the FIS/ECCMID abstract,
+generate the plots used in a FIS/ECCMID abstract.
