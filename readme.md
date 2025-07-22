@@ -1,16 +1,39 @@
 # DASSIM deep sequencing
 
-Code for analysis of the DASSIM metagenomic samples.
+Code for analysis of the DASSIM metagenomic samples; currently published as a
+preprint at
+[medRxiv](https://www.medrxiv.org/content/10.1101/2025.04.03.25325172v1)
 
-## repo structure
+**Quantifying the bystander effect of antimicrobial use on the diversity and
+resistome of the gut microbiome in Malawian adults**
+
+*Edward Cunningham-Oakes, Vivien Price, Madalitso Mphasa, Jane Mallewa, Alistair
+Darby, Nicholas A Feasey, Joseph M Lewis*
+
+medRxiv 2025.04.03.25325172; doi: https://doi.org/10.1101/2025.04.03.25325172
+
+## Repo structure
 
 - Analysis scripts are in `scripts/` as quarto files to generate `.html`
 analysis files - there are a bunch of these, detailed below in "fitting
 the models"
-- quarto is a scientific publishing system - indtallation details at
+- quarto is a scientific publishing system - installation details at
 [https://quarto.org/]
 - stan models are in the root directory of the repo
 - data is in `data_raw/` 
+
+## Accession numbers
+
+Accession numbers for shotgun metagenomic reads sequenced as part of this study
+and submitted to ENA are linked to sample ID in `data_processed/accessions.csv`
+in this repo - the sample IDs here are linked back to clinical metadata in the
+`blantyreESBL` R package - the `lab_id` variable in the
+`[btEBSL_stoolESBL](https://joelewis101.github.io/blantyreESBL/reference/btESBL_stoolESBL.html)`
+data table links to `lab_id` in `data_processed/accessions.csv`.
+
+Single colony picks were previously sequenced and data on them have been [published elsewhere](https://joelewis101.github.io/blantyreESBL/index.html) 
+Data linking these to `lab_id` are in the
+`[btESBL_sequence_sample_metadata](https://joelewis101.github.io/blantyreESBL/reference/btESBL_sequence_sample_metadata.html)` data table in the `blantyreESBL` R package.
 
 ## Reproducing the paper analysis
 
@@ -22,11 +45,13 @@ scripts
 - Shannon diversity models; `scripts/fit_shannon_diversity_model.R`
 - Taxonomy models: `scripts/fit_taxonomy_models.R`
 - AMR models: `scripts/model-amr.R`  
+- AMR models excluding Bacteroides-associated beta-lactamase genes:
+`scripts/model-amr-exclude-bacteroides-bl.R` 
 - The E. coli specific AMR model: `scripts/model-amr_ecoli.R`
 
-These will save models in `data_processed/` - the files are quite large so not
-pushed to repo. Other scripts (detailed below) extract and plot diagnostics and
-results as htmls.
+These will use the data in `data_raw` to fit the model and save model output in
+`data_processed/` - the files are quite large so not pushed to repo. Other
+scripts (detailed below) extract and plot diagnostics and results as htmls.
 
 ## Fitting the models
 
@@ -39,8 +64,9 @@ results as htmls.
 
 ### Model code
 
-All of the final models include a within-participant correlation structure to account
-for repeated measurement, and are all in the root of the repo:
+All of the final models are coded in Stan and include a within-participant
+correlation structure to account for repeated measurement, and are all in the
+root of the repo; there are three models used in the analysis:
 
 - `amr-gene-multilevel-gp-cholfactv2.stan` is the final logistic regression
 model (AMR presence/absence)
@@ -48,11 +74,15 @@ model (AMR presence/absence)
 by sample) with no predictions generated - used for taxonomy
 - `lm.stan` - linear model for Shannon Diversity
 
-### Shannon diversity
+### Shannon diversity - linear model
 
 - `scripts/fit_shannon_diversity_model.R` fits and saves the models 
 
-### AMR
+### AMR - logistic regression
+
+We fit a number of different AMR models.
+
+#### Total resistome AMR
 
 - `scripts/model-amr.R` fits and saves the models - the latter scripts need these
 outputs to run 
@@ -61,9 +91,18 @@ outputs to run
 the results from it 
 - `scripts/resistome.qmd` is a description of the dataset and outputs of the models
 
+#### Total resistome AMR excluding Bacteroides-associated beta-lactamases
+
+- `scripts/model-amr-exclude-bacteroides-bl.R` fits and saves the models
+- `scripts/model-amr-diagnostics-bacteroidesGP.qmd` plots diagnostics from
+fitted models
+- `scripts/resistome_bacteroides_stratified.qmd` plots model results
+
+#### *E. coli* associated AMR
+
 - `scripts/model-amr_ecoli.R` fits the E. coli specific resistome model
 - `scripts/model-amr-diagnostics-ECOLIGP.qmd` plots the diagnostics
-- `scripts/model-amr-diagnostics-ECOLIGP.qmd` plots the diagnostics
+- `scripts/describe_ecoli_bin_amr.qmd` plots the outputs of the E. coli resistome models
 
 ### Taxonomy
 
