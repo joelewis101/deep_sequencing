@@ -28,12 +28,12 @@ Accession numbers for shotgun metagenomic reads sequenced as part of this study
 and submitted to ENA are linked to sample ID in `data_processed/accessions.csv`
 in this repo - the sample IDs here are linked back to clinical metadata in the
 `blantyreESBL` R package - the `lab_id` variable in the
-`[btEBSL_stoolESBL](https://joelewis101.github.io/blantyreESBL/reference/btESBL_stoolESBL.html)`
+[btEBSL_stoolESBL](https://joelewis101.github.io/blantyreESBL/reference/btESBL_stoolESBL.html)
 data table links to `lab_id` in `data_processed/accessions.csv`.
 
 Single colony picks were previously sequenced and data on them have been [published elsewhere](https://joelewis101.github.io/blantyreESBL/index.html) 
 Data linking these to `lab_id` are in the
-`[btESBL_sequence_sample_metadata](https://joelewis101.github.io/blantyreESBL/reference/btESBL_sequence_sample_metadata.html)` data table in the `blantyreESBL` R package.
+[btESBL_sequence_sample_metadata](https://joelewis101.github.io/blantyreESBL/reference/btESBL_sequence_sample_metadata.html) data table in the `blantyreESBL` R package.
 
 ## Reproducing the paper analysis
 
