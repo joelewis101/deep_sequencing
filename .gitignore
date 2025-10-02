@@ -4,6 +4,7 @@ negbin-randintercept
 negbin_gp
 poisson_gp
 negbin_gp_nopreds
+amr-gene-multilevel-gp-cholfactv2_stoolvsswab
 *.docx
 *.png
 *.svg
@@ -20,6 +21,4 @@ amr-gene-multilevel-gp-cholfactv2
 amr-gene-logreg
 *.pdf
 *.jpg
-
-
 lm

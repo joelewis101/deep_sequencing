@@ -979,14 +979,15 @@ ggsave(here("plots/fig2.svg"), width = 15, height = 17)
 #| fig.height: 18
 #| fig.width: 16
 
-mod_sum_df <-
-  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+
+mod_sum_df <- 
+  read_rds(here("data_processed/resfindermodel_summary-df.rda"))
 
 mod_draws <-
-  read_rds(here("data_processed/gp_drawslistout.rda"))
+  read_rds(here("data_processed/resfindermodel_posterior-draws-list.rda"))
 
 outcome_vars <-
-  read_rds(here("data_processed/gp_outcome_vars.rda"))
+ read_rds(here("data_processed/resfindermodel_outcome-vars.rda"))
 
 p_3a <-
   df |>
@@ -1124,8 +1125,6 @@ p_3b <-
 
 # models
 
-mod_sum_df <-
-  read_rds(here("data_processed/gp_mod_sum_df.rda"))
 
 fact_levels <-
   mod_sum_df |>

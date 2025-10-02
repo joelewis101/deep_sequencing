@@ -107,21 +107,11 @@ df_mod <-
     values_from = time_since_exp
   ) |>
   mutate(across(matches("exp"), ~ if_else(is.na(.x), -1, .x))) |>
-  arrange(pid, assess_type) |>
-  filter(!name %in% tolower(samples_to_drop)) |>
-  left_join(
-    btESBL_stoolESBL |>
-      transmute(
-        name = tolower(lab_id),
-        sample_type = case_when(
-          is.na(sample_type) ~ 1,
-          !is.na(sample_type) & sample_type == "stool" ~ 1,
-          TRUE ~ 0
-        )
-      ),
-    by = join_by(name)
-  ) |>
-  relocate(c(pid, assess_type, sample_type))
+  arrange(pid, assess_type)
+
+df_mod <-
+  df_mod |>
+  filter(!name %in% tolower(samples_to_drop))
 
 df_mod |>
   select(pid, matches(("exp_"))) |>
@@ -133,12 +123,154 @@ df_mod |>
   arrange(desc(n)) |>
   as.data.frame()
 
+mod <- cmdstan_model(here("amr-gene-logreg.stan"))
+
+stan_data_list <-
+  list(
+    n = nrow(df_mod),
+    n_participants = length(unique(df_mod$pid)),
+    n_covariates = 5,
+    pid = df_mod |>
+      group_by(pid) |>
+      mutate(int_id = cur_group_id()) |>
+      pull(int_id),
+    t_e = matrix(
+      c(
+        df_mod$exp_cefo,
+        df_mod$exp_hosp,
+        df_mod$exp_cotri,
+        df_mod$exp_cipro,
+        # df_mod$exp_tb,
+        df_mod$exp_amoxy
+      ),
+      ncol = 5
+    ),
+    y = df_mod$cephalosporin
+  )
+
+fit <- mod$sample(
+  data = stan_data_list,
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 1500,
+  iter_sampling = 3000
+)
+
+d <- fit$draws()
+
+summary(d)
+
+mcmc_trace(d,  regex_pars = "alpha|beta|sigma|tau")
+
+mcmc_intervals(d, regex_pars = "alpha|beta|sigma", prob_outer = 0.95)
+
+mcmc_intervals_data(d, regex_pars = "alpha|beta|sigma", prob_outer = 0.95, transformations = exp)
+
+mcmc_intervals(d, regex_pars = "gamma")
+
+mcmc_intervals(d, regex_pars = "tau")
+
+
+# fit for all outcomes
+
+
+outcome_vars <- names(df_mod)[!grepl("exp|name|pid|assess_type", names(df_mod))]
+
+fitlistout <- list()
+drawslistout <- list()
+summarylistout <- list()
+
+for (i in seq_len(length(outcome_vars))) {
+
+  print(paste0("Generating model data for outcome var ", outcome_vars[i]))
+  print(paste0("Variable ", i, " of ", length(outcome_vars)))
+
+
+  stan_data_list <-
+    list(
+      n = nrow(df_mod),
+      n_participants = length(unique(df_mod$pid)),
+      n_covariates = 5,
+      pid = df_mod |>
+        group_by(pid) |>
+        mutate(int_id = cur_group_id()) |>
+        pull(int_id),
+      t_e = matrix(
+        c(
+
+          df_mod$exp_cefo,
+          df_mod$exp_hosp,
+          df_mod$exp_cotri,
+          df_mod$exp_cipro,
+          # df_mod$exp_tb,
+          df_mod$exp_amoxy
+        ),
+        ncol = 5
+      ),
+      y = df_mod[[outcome_vars[i]]]
+    )
+
+  print("Extracting draws and saving to list")
+
+  fit <- mod$sample(
+    data = stan_data_list,
+    chains = 4,
+    parallel_chains = 4,
+    iter_warmup = 1500,
+    iter_sampling = 3000,
+    refresh = 500
+
+  )
+
+  fitlistout[[i]] <- fit
+
+  d <- fit$draws()
+
+  drawslistout[[i]] <- d 
+
+  df_sum_out <- mcmc_intervals_data(d, prob_outer = 0.95) 
+  df_sum_out$outcome_var <- outcome_vars[i]
+  summarylistout[[i]] <- df_sum_out
+
+}
+
+mod_sum_df <- bind_rows(summarylistout) 
+
+write_rds(mod_sum_df, here("data_processed/mod_sum_df.rda"), compress = "gz")
+
+write_rds(fitlistout, here("data_processed/fitlistout.rda"), compress = "gz")
+
+write_rds(drawslistout, here("data_processed/drawslistout.rda"), compress = "gz")
+
+# plot em
+# model checks
+
+diagnosticsumlistout <- list()
+
+for (i in seq_len(length(outcome_vars))) {
+
+  dfout <- bind_rows(fitlistout[[i]]$diagnostic_summary())
+  dfout$outcome_var <- outcome_vars[i]
+
+  diagnosticsumlistout[[i]] <- dfout
+
+}
+
+mod_diagnostics_df <-
+  bind_rows(diagnosticsumlistout)
+
+
+write_rds(mod_diagnostics_df, 
+  here("data_processed/mod_diagnostics_df.rda"), compress = "gz")
+
+write_rds(outcome_vars, here("data_processed/outcome_vars.rda"))
+
 
 # fit the multilevel Gaussian process model and save
 
 # start with one model
 
-mod2 <- cmdstan_model(here("amr-gene-multilevel-gp-cholfactv2_stoolvsswab.stan"))
+mod2 <- cmdstan_model(here("amr-gene-multilevel-gp-cholfactv2.stan"))
 
 mean_assess_type <- mean(df_mod$assess_type)
 sd_assess_type <- mean(df_mod$assess_type)
@@ -153,20 +285,19 @@ stan_data_list <-
       group_by(pid) |>
       summarise(n = n()) |>
       pull(n),
-    t = scale(df_mod$assess_type)[, 1],
+    t = scale(df_mod$assess_type)[,1],
     t_e = matrix(
       c(
         df_mod$exp_cefo / sd(df_mod$assess_type),
         df_mod$exp_hosp / sd(df_mod$assess_type),
         df_mod$exp_cotri / sd(df_mod$assess_type),
-        df_mod$exp_cipro / sd(df_mod$assess_type),
+        df_mod$exp_cipro /  sd(df_mod$assess_type),
         # df_mod$exp_tb,
-        df_mod$exp_amoxy / sd(df_mod$assess_type)
+        df_mod$exp_amoxy /   sd(df_mod$assess_type)
       ),
       ncol = 5
     ),
-    y = df_mod$erythromycin_spiramycin_telithromycin,
-    stool = df_mod$sample_type
+    y = df_mod$erythromycin_spiramycin_telithromycin
   )
 
 fit2 <- mod2$sample(
@@ -178,44 +309,41 @@ fit2 <- mod2$sample(
   # iter_warmup = 1500,
   # iter_sampling = 3000
 
-d <- fit2$draws()
+fit2$draws() -> d
 
 # plot correlation
 
 
-d_df <- fit2$draws(format = "draws_df")
+fit2$draws(format = "draws_df") -> d_df
 
 cross_join(
   tibble(
-    t = seq(0, 5, by = 0.1)
-  ),
-  d_df
-) |>
+   t = seq(0,5, by = 0.1)),
+  d_df) |>
   mutate(f = alpha^2 * exp(-t^2 / (2 * length_scale^2))) |>
   group_by(t) |>
-  summarise(
-    med = median(f),
+  summarise(med = median(f),
     hh = quantile(f, 0.025),
     ll = quantile(f, 0.975),
     h = quantile(f, 0.25),
     l = quantile(f, 0.75),
   ) |>
-  ggplot(aes(t, med, ymin = ll, ymax = hh)) +
+  ggplot(aes(t, med, ymin = ll, ymax= hh)) +
   geom_line() +
   geom_ribbon(color = NA, alpha = 0.5) +
   geom_ribbon(aes(x = t, ymin = l, ymax = h), color = NA, alpha = 0.5)
 
-# fit for all
+# fit for all 
 
 
-outcome_vars <-
-  names(df_mod)[!grepl("exp|name|pid|assess_type|sample_type", names(df_mod))]
+outcome_vars <- names(df_mod)[!grepl("exp|name|pid|assess_type", names(df_mod))]
 
 fitlistout <- list()
 drawslistout <- list()
 summarylistout <- list()
 
 for (i in seq_len(length(outcome_vars))) {
+
   print(paste0("Generating model data for outcome var ", outcome_vars[i]))
   print(paste0("Variable ", i, " of ", length(outcome_vars)))
 
@@ -225,13 +353,14 @@ for (i in seq_len(length(outcome_vars))) {
       n = nrow(df_mod),
       n_participants = length(unique(df_mod$pid)),
       n_covariates = 5,
-      t = scale(df_mod$assess_type)[, 1],
-      N = df_mod |>
-        group_by(pid) |>
-        summarise(n = n()) |>
-        pull(n),
+    t = scale(df_mod$assess_type)[,1],
+    N = df_mod |>
+      group_by(pid) |>
+      summarise(n = n()) |>
+      pull(n),
       t_e = matrix(
         c(
+
           df_mod$exp_cefo / sd(df_mod$assess_type),
           df_mod$exp_hosp / sd(df_mod$assess_type),
           df_mod$exp_cotri / sd(df_mod$assess_type),
@@ -241,7 +370,6 @@ for (i in seq_len(length(outcome_vars))) {
         ),
         ncol = 5
       ),
-      stool = df_mod$sample_type,
       y = df_mod[[outcome_vars[i]]]
     )
 
@@ -255,29 +383,28 @@ for (i in seq_len(length(outcome_vars))) {
     iter_sampling = 1000,
     refresh = 100,
     adapt_delta = 0.99
+
   )
 
   fitlistout[[i]] <- fit
 
   d <- fit$draws()
 
-  drawslistout[[i]] <- d
+  drawslistout[[i]] <- d 
 
-  df_sum_out <- mcmc_intervals_data(d, prob_outer = 0.95)
+  df_sum_out <- mcmc_intervals_data(d, prob_outer = 0.95) 
   df_sum_out$outcome_var <- outcome_vars[i]
   summarylistout[[i]] <- df_sum_out
+
 }
 
-mod_sum_df <- bind_rows(summarylistout)
+mod_sum_df <- bind_rows(summarylistout) 
 
-write_rds(mod_sum_df, 
-  here("data_processed/resfindermodel_summary-df.rda"), compress = "gz")
+write_rds(mod_sum_df, here("data_processed/gp_mod_sum_df.rda"), compress = "gz")
 
-write_rds(fitlistout,
-  here("data_processed/resfindermodel_fitted-model-list.rda"), compress = "gz")
+write_rds(fitlistout, here("data_processed/gp_fitlistout.rda"), compress = "gz")
 
-write_rds(drawslistout,
-  here("data_processed/resfindermodel_posterior-draws-list.rda"), compress = "gz")
+write_rds(drawslistout, here("data_processed/gp_drawslistout.rda"), compress = "gz")
 
 
 diagnosticsumlistout <- list()
@@ -296,8 +423,8 @@ mod_diagnostics_df <-
 
 
 write_rds(mod_diagnostics_df, 
-  here("data_processed/resfindermodel_diagnostics.rda"), compress = "gz")
+  here("data_processed/gp_mod_diagnostics_df.rda"), compress = "gz")
 
-write_rds(outcome_vars, here("data_processed/resfindermodel_outcome-vars.rda"))
+write_rds(outcome_vars, here("data_processed/gp_outcome_vars.rda"))
 
 

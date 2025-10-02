@@ -31,18 +31,18 @@ library(bayesplot)
 
 
 mod_sum_df <- 
-  read_rds(here("data_processed/mod_sum_df.rda"))
+  read_rds(here("data_processed/resfindermodel_summary-df.rda"))
 
 drawslistout <- 
-  read_rds(here("data_processed/drawslistout.rda"))
+  read_rds(here("data_processed/resfindermodel_posterior-draws-list.rda"))
 
 fitlistout <-
-  read_rds(here("data_processed/fitlistout.rda"))
+  read_rds(here("data_processed/resfindermodel_fitted-model-list.rda"))
 
 mod_diagnostics_df <-
-  read_rds(here("data_processed/mod_diagnostics_df.rda"))
+  read_rds(here("data_processed/resfindermodel_diagnostics.rda"))
 
-outcome_vars <- read_rds(here("data_processed/outcome_vars.rda"))
+outcome_vars <- read_rds(here("data_processed/resfindermodel_outcome-vars.rda"))
 
 ```
 

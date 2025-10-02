@@ -68,7 +68,7 @@ All of the final models are coded in Stan and include a within-participant
 correlation structure to account for repeated measurement, and are all in the
 root of the repo; there are three models used in the analysis:
 
-- `amr-gene-multilevel-gp-cholfactv2.stan` is the final logistic regression
+- `amr-gene-multilevel-gp-cholfactv2_stoolvsswab.stan` is the final logistic regression
 model (AMR presence/absence)
 - `negbin_gp_nopreds.stan` negative binomial absolute read count model (with offset
 by sample) with no predictions generated - used for taxonomy
@@ -86,17 +86,13 @@ We fit a number of different AMR models.
 
 - `scripts/model-amr.R` fits and saves the models - the latter scripts need these
 outputs to run 
-- `scripts/model-amr-diagnostics-GP.qmd` pulls and plots diagnostics
-- `scripts/building-correlated-random-eff-mod.qmd` outlines the AMR model and
-the results from it 
-- `scripts/resistome.qmd` is a description of the dataset and outputs of the models
+- `scripts/model-amr-diagnostics-resfinder.qmd` pulls and plots diagnostics
 
 #### Total resistome AMR excluding Bacteroides-associated beta-lactamases
 
-- `scripts/model-amr-exclude-bacteroides-bl.R` fits and saves the models
-- `scripts/model-amr-diagnostics-bacteroidesGP.qmd` plots diagnostics from
+- `scripts/model-amr-resfinder-exclude-bacteroides-bl.R` fits and saves the models
+- `scripts/model-amr-resfinder-exclude-bacteroides-bl-diagnostics.qmd` plots diagnostics from
 fitted models
-- `scripts/resistome_bacteroides_stratified.qmd` plots model results
 
 #### *E. coli* associated AMR
 
@@ -123,6 +119,8 @@ Not used in the final analysis - in the `archive/` folder
 - within-participant correlation (v bad fit)
 - `amr-gene-logreg.stan` is the standard random effect logistic regression
 model (AMR gene presence/absence) with random intercept by partcicipant
+- `amr-gene-multilevel-gp-cholfactv2.stan` is the final logistic regression
+model except without the stool vs rectal swab variable.
 
 
 ## Other scripts

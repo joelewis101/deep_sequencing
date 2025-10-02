@@ -36,10 +36,18 @@ df <-
       group = 1
     )
   ) |>
+  mutate(
+    subclass = if_else(
+      grepl("cfi|cbl|crx|cep|cfx", gene_symbol),
+      paste0(subclass, "_b"),
+      subclass
+    )
+  ) |>
   mutate(name = gsub("_uncorrected", "", name)) |>
   pivot_wider(
     id_cols = c(class, subclass, gene_symbol),
-  )
+  ) |>
+  filter(class == "BETA-LACTAM")
 
 df2 <-
   df |>
@@ -136,75 +144,6 @@ df_mod |>
 
 # fit the multilevel Gaussian process model and save
 
-# start with one model
-
-mod2 <- cmdstan_model(here("amr-gene-multilevel-gp-cholfactv2_stoolvsswab.stan"))
-
-mean_assess_type <- mean(df_mod$assess_type)
-sd_assess_type <- mean(df_mod$assess_type)
-
-
-stan_data_list <-
-  list(
-    n = nrow(df_mod),
-    n_participants = length(unique(df_mod$pid)),
-    n_covariates = 5,
-    N = df_mod |>
-      group_by(pid) |>
-      summarise(n = n()) |>
-      pull(n),
-    t = scale(df_mod$assess_type)[, 1],
-    t_e = matrix(
-      c(
-        df_mod$exp_cefo / sd(df_mod$assess_type),
-        df_mod$exp_hosp / sd(df_mod$assess_type),
-        df_mod$exp_cotri / sd(df_mod$assess_type),
-        df_mod$exp_cipro / sd(df_mod$assess_type),
-        # df_mod$exp_tb,
-        df_mod$exp_amoxy / sd(df_mod$assess_type)
-      ),
-      ncol = 5
-    ),
-    y = df_mod$erythromycin_spiramycin_telithromycin,
-    stool = df_mod$sample_type
-  )
-
-fit2 <- mod2$sample(
-  data = stan_data_list,
-  chains = 4,
-  parallel_chains = 4,
-  adapt_delta = 0.99
-  )
-  # iter_warmup = 1500,
-  # iter_sampling = 3000
-
-d <- fit2$draws()
-
-# plot correlation
-
-
-d_df <- fit2$draws(format = "draws_df")
-
-cross_join(
-  tibble(
-    t = seq(0, 5, by = 0.1)
-  ),
-  d_df
-) |>
-  mutate(f = alpha^2 * exp(-t^2 / (2 * length_scale^2))) |>
-  group_by(t) |>
-  summarise(
-    med = median(f),
-    hh = quantile(f, 0.025),
-    ll = quantile(f, 0.975),
-    h = quantile(f, 0.25),
-    l = quantile(f, 0.75),
-  ) |>
-  ggplot(aes(t, med, ymin = ll, ymax = hh)) +
-  geom_line() +
-  geom_ribbon(color = NA, alpha = 0.5) +
-  geom_ribbon(aes(x = t, ymin = l, ymax = h), color = NA, alpha = 0.5)
-
 # fit for all
 
 
@@ -271,13 +210,13 @@ for (i in seq_len(length(outcome_vars))) {
 mod_sum_df <- bind_rows(summarylistout)
 
 write_rds(mod_sum_df, 
-  here("data_processed/resfindermodel_summary-df.rda"), compress = "gz")
+  here("data_processed/resfindermodel_summary-df_bacteroidesbls-stratifed.rda"), compress = "gz")
 
 write_rds(fitlistout,
-  here("data_processed/resfindermodel_fitted-model-list.rda"), compress = "gz")
+  here("data_processed/resfindermodel_fitted-model-list_bacteroidesbls-stratified.rda"), compress = "gz")
 
 write_rds(drawslistout,
-  here("data_processed/resfindermodel_posterior-draws-list.rda"), compress = "gz")
+  here("data_processed/resfindermodel_posterior-draws-list_bacteroidesbls-stratified.rda"), compress = "gz")
 
 
 diagnosticsumlistout <- list()
@@ -296,8 +235,8 @@ mod_diagnostics_df <-
 
 
 write_rds(mod_diagnostics_df, 
-  here("data_processed/resfindermodel_diagnostics.rda"), compress = "gz")
+  here("data_processed/resfindermodel_diagnostics_bacteroidesbls-stratified.rda"), compress = "gz")
 
-write_rds(outcome_vars, here("data_processed/resfindermodel_outcome-vars.rda"))
+write_rds(outcome_vars, here("data_processed/resfindermodel_outcomes-var_bacteroidesbls-stratified.rda"))
 
 
