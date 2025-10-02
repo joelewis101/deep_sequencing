@@ -1386,7 +1386,7 @@ p_3e <-
 
 
 mod_sum_df_bact <-
-  read_rds(here("data_processed/gp_mod_sum_df_bacteroides.rda"))
+  read_rds(here("data_processed/resfindermodel_summary-df_bacteroidesbls-stratifed.rda"))
 
 p_3f <-
   mod_sum_df_bact |>
@@ -2249,10 +2249,10 @@ ggsave(here("plots/sfig05.svg"), width = 13.5, height = 15)
 
 
 mod_sum_df <-
-  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+  read_rds(here("data_processed/resfindermodel_summary-df.rda"))
 
 mod_sum_df |>
-  filter(grepl("sigma|alpha|length|tau|beta_0", parameter)) |>
+  filter(grepl("sigma|alpha|length|tau|beta_0|beta_s", parameter)) |>
   mutate(
     outcome_var = str_to_title(gsub("_", " ", outcome_var)),
     # outcome_var = str_wrap(outcome_var, width = 25),
