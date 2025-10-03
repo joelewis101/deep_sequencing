@@ -418,7 +418,7 @@ sim_df <-
     sim_diversity(d, exposure = "ceftriaxone", t_max = 100),
     sim_diversity(d, exposure = "ciprofloxacin", t_max = 100),
     sim_diversity(d, exposure = "cotrimoxazole", t_max = 100),
-    sim_diversity(d, exposure = "amoxcicillin", t_max = 100),
+    sim_diversity(d, exposure = "amoxicillin", t_max = 100),
     sim_diversity(d, exposure = "no antibiotic", t_max = 100),
     sim_diversity(d, exposure = "community", b2_exp = 0, t_max = 100)
   )

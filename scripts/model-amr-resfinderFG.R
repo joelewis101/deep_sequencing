@@ -19,7 +19,7 @@ library(bayesplot)
 df <-
   read_tsv(
     here(
-      "data_raw/ECO_AMRfinder_all_metagenomes_default_17_11_23/AMR_binary_matrix.tsv"
+      "data_raw/resfinderFG/ECO_metagenomes_ResFinderFG_binary_matrix.tsv"
     )
   ) |>
   janitor::clean_names()

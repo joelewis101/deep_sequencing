@@ -5,6 +5,7 @@ negbin_gp
 poisson_gp
 negbin_gp_nopreds
 amr-gene-multilevel-gp-cholfactv2_stoolvsswab
+lm_stoolvswab
 *.docx
 *.png
 *.svg
