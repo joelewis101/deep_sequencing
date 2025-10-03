@@ -862,7 +862,8 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
             beta_2 * generate_coef(cov_beta_2, tau) +
             beta_3 * generate_coef(cov_beta_3, tau) +
             beta_4 * generate_coef(cov_beta_4, tau) +
-            beta_5 * generate_coef(cov_beta_5, tau)
+            beta_5 * generate_coef(cov_beta_5, tau) +
+            beta_s
           # log(2.5e7)
         ),
       exposure = exposure_var,
@@ -1938,7 +1939,7 @@ mod_sum_df <-
     parameter = case_when(
       parameter == "beta[1]" ~ "beta_cef",
       parameter == "beta[2]" ~ "beta_hosp",
-      parameter == "beta[3]" ~ "beta_cortrim",
+      parameter == "beta[3]" ~ "beta_cotrim",
       parameter == "beta[4]" ~ "beta_cip",
       parameter == "beta[5]" ~ "beta_amox",
       TRUE ~ parameter
@@ -1947,8 +1948,7 @@ mod_sum_df <-
 
 p_a <-
   mod_sum_df |>
-
-  filter(!grepl("beta|lp_|eta", parameter)) |>
+  filter(!grepl("cef|hosp|cotrim|cip|amox|lp_|^eta|", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "phylum") |>
   ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
@@ -1962,7 +1962,7 @@ p_a <-
 
 p_b <-
   mod_sum_df |>
-  filter(!grepl("beta|lp_|eta", parameter)) |>
+  filter(!grepl("cef|hosp|cotrim|cip|amox|lp_|^eta", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "order") |>
   ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
@@ -1976,7 +1976,7 @@ p_b <-
 
 p_c <-
   mod_sum_df |>
-  filter(!grepl("beta|lp_|eta", parameter)) |>
+  filter(!grepl("cef|hosp|cotrim|cip|amox|lp_|^eta", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "genus") |>
   ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
@@ -1990,8 +1990,8 @@ p_c <-
 
 p_a / p_b / p_c + plot_layout(heights = c(1, 3, 3))
 
-ggsave(here("plots/sfig02.svg"), width = 8, height = 10)
-ggsave(here("plots/sfig02.pdf"), width = 8, height = 10)
+ggsave(here("plots/sfig02.svg"), width = 8, height = 12)
+ggsave(here("plots/sfig02.pdf"), width = 8, height = 12)
 ```
 
 ## Supplementary Figure 3
