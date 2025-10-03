@@ -142,32 +142,32 @@ df_mod <-
     values_from = time_since_exp
   ) |>
   mutate(across(matches("exp"), ~ if_else(is.na(.x), -1, .x))) |>
-  arrange(pid, assess_type)
+  arrange(pid, assess_type) |>
+  filter(!name %in% tolower(samples_to_drop)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      transmute(
+        name = tolower(lab_id),
+        sample_type = case_when(
+          is.na(sample_type) ~ 1,
+          !is.na(sample_type) & sample_type == "stool" ~ 1,
+          TRUE ~ 0
+        )
+      ),
+    by = join_by(name)
+  ) |>
+  relocate(c(pid, assess_type, sample_type))
 
-df_mod <-
-  df_mod |>
-  filter(!name %in% tolower(samples_to_drop))
-
-df_mod |>
-  select(pid, matches(("exp_"))) |>
-  pivot_longer(-pid) |>
-  filter(value != -1) |>
-  select(pid, name) |>
-  unique() |>
-  count(name) |>
-  arrange(desc(n)) |>
-  as.data.frame()
 
 
 # fit the multilevel Gaussian process model and save
 
-# start with one model
 
-mod2 <- cmdstan_model(here("amr-gene-multilevel-gp-cholfactv2.stan"))
+mod2 <- cmdstan_model(here("amr-gene-multilevel-gp-cholfactv2_stoolvsswab.stan"))
 # fit for all
 
 
-outcome_vars <- names(df_mod)[!grepl("exp|name|pid|assess_type", names(df_mod))]
+outcome_vars <- names(df_mod)[!grepl("exp|name|pid|assess_type|sample_type", names(df_mod))]
 
 fitlistout <- list()
 drawslistout <- list()
@@ -198,6 +198,7 @@ for (i in seq_len(length(outcome_vars))) {
         ),
         ncol = 5
       ),
+      stool = df_mod$sample_type,
       y = df_mod[[outcome_vars[i]]]
     )
 

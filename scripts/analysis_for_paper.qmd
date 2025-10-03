@@ -2617,7 +2617,7 @@ ggsave(here("plots/sfig09.svg"), width = 12, height = 12)
 
 
 ecoli_mod_sum_df |>
-  filter(grepl("sigma|alpha|length|tau|beta_0", parameter)) |>
+  filter(grepl("sigma|alpha|length|tau|beta_0|beta_s", parameter)) |>
   mutate(
     outcome_var = str_to_title(gsub("_", " ", outcome_var)),
     # outcome_var = str_wrap(outcome_var, width = 25),
