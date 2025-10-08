@@ -12,6 +12,10 @@ Darby, Nicholas A Feasey, Joseph M Lewis*
 
 medRxiv 2025.04.03.25325172; doi: https://doi.org/10.1101/2025.04.03.25325172
 
+Snapshots of this repo are mirrored in zenodo with the doi below
+
+[![DOI](https://zenodo.org/badge/733497197.svg)](https://doi.org/10.5281/zenodo.17296033)
+
 ## Repo structure
 
 - Analysis scripts are in `scripts/` as quarto files to generate `.html`
