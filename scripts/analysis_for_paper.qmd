@@ -418,7 +418,7 @@ sim_df <-
     sim_diversity(d, exposure = "ceftriaxone", t_max = 100),
     sim_diversity(d, exposure = "ciprofloxacin", t_max = 100),
     sim_diversity(d, exposure = "cotrimoxazole", t_max = 100),
-    sim_diversity(d, exposure = "amoxcicillin", t_max = 100),
+    sim_diversity(d, exposure = "amoxicillin", t_max = 100),
     sim_diversity(d, exposure = "no antibiotic", t_max = 100),
     sim_diversity(d, exposure = "community", b2_exp = 0, t_max = 100)
   )
@@ -862,7 +862,8 @@ tax_simulate_exposure <- function(outcome_var, exposure_var, mod_draws, outcome_
             beta_2 * generate_coef(cov_beta_2, tau) +
             beta_3 * generate_coef(cov_beta_3, tau) +
             beta_4 * generate_coef(cov_beta_4, tau) +
-            beta_5 * generate_coef(cov_beta_5, tau)
+            beta_5 * generate_coef(cov_beta_5, tau) +
+            beta_s
           # log(2.5e7)
         ),
       exposure = exposure_var,
@@ -979,14 +980,15 @@ ggsave(here("plots/fig2.svg"), width = 15, height = 17)
 #| fig.height: 18
 #| fig.width: 16
 
-mod_sum_df <-
-  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+
+mod_sum_df <- 
+  read_rds(here("data_processed/resfindermodel_summary-df.rda"))
 
 mod_draws <-
-  read_rds(here("data_processed/gp_drawslistout.rda"))
+  read_rds(here("data_processed/resfindermodel_posterior-draws-list.rda"))
 
 outcome_vars <-
-  read_rds(here("data_processed/gp_outcome_vars.rda"))
+ read_rds(here("data_processed/resfindermodel_outcome-vars.rda"))
 
 p_3a <-
   df |>
@@ -1124,8 +1126,6 @@ p_3b <-
 
 # models
 
-mod_sum_df <-
-  read_rds(here("data_processed/gp_mod_sum_df.rda"))
 
 fact_levels <-
   mod_sum_df |>
@@ -1387,7 +1387,7 @@ p_3e <-
 
 
 mod_sum_df_bact <-
-  read_rds(here("data_processed/gp_mod_sum_df_bacteroides.rda"))
+  read_rds(here("data_processed/resfindermodel_summary-df_bacteroidesbls-stratifed.rda"))
 
 p_3f <-
   mod_sum_df_bact |>
@@ -1939,7 +1939,7 @@ mod_sum_df <-
     parameter = case_when(
       parameter == "beta[1]" ~ "beta_cef",
       parameter == "beta[2]" ~ "beta_hosp",
-      parameter == "beta[3]" ~ "beta_cortrim",
+      parameter == "beta[3]" ~ "beta_cotrim",
       parameter == "beta[4]" ~ "beta_cip",
       parameter == "beta[5]" ~ "beta_amox",
       TRUE ~ parameter
@@ -1948,8 +1948,7 @@ mod_sum_df <-
 
 p_a <-
   mod_sum_df |>
-
-  filter(!grepl("beta|lp_|eta", parameter)) |>
+  filter(!grepl("cef|hosp|cotrim|cip|amox|lp_|^eta|", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "phylum") |>
   ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
@@ -1963,7 +1962,7 @@ p_a <-
 
 p_b <-
   mod_sum_df |>
-  filter(!grepl("beta|lp_|eta", parameter)) |>
+  filter(!grepl("cef|hosp|cotrim|cip|amox|lp_|^eta", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "order") |>
   ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
@@ -1977,7 +1976,7 @@ p_b <-
 
 p_c <-
   mod_sum_df |>
-  filter(!grepl("beta|lp_|eta", parameter)) |>
+  filter(!grepl("cef|hosp|cotrim|cip|amox|lp_|^eta", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "genus") |>
   ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
@@ -1991,8 +1990,8 @@ p_c <-
 
 p_a / p_b / p_c + plot_layout(heights = c(1, 3, 3))
 
-ggsave(here("plots/sfig02.svg"), width = 8, height = 10)
-ggsave(here("plots/sfig02.pdf"), width = 8, height = 10)
+ggsave(here("plots/sfig02.svg"), width = 8, height = 12)
+ggsave(here("plots/sfig02.pdf"), width = 8, height = 12)
 ```
 
 ## Supplementary Figure 3
@@ -2250,10 +2249,10 @@ ggsave(here("plots/sfig05.svg"), width = 13.5, height = 15)
 
 
 mod_sum_df <-
-  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+  read_rds(here("data_processed/resfindermodel_summary-df.rda"))
 
 mod_sum_df |>
-  filter(grepl("sigma|alpha|length|tau|beta_0", parameter)) |>
+  filter(grepl("sigma|alpha|length|tau|beta_0|beta_s", parameter)) |>
   mutate(
     outcome_var = str_to_title(gsub("_", " ", outcome_var)),
     # outcome_var = str_wrap(outcome_var, width = 25),
@@ -2391,11 +2390,339 @@ ggsave(here("plots/sfig07.pdf"), height = 18, width = 14)
 ggsave(here("plots/sfig07.svg"), height = 18, width = 14)
 ```
 
+
 ## Supplementary Figure 8
 
 ```{r}
 #| label: fig-sfig8
-#| fig-cap: "Hierarchically clustered heatmap of spearman correlation coefficient of presence of AMR gene subclass (row) and taxon (column) - Phylum (A), Order (B), Genus (C)."
+#| fig-cap: "Distribution of ResFinderFG-identfied gene annotations (A) and prevalence of genes expected to confer resistance to antimicrobial agents (B) stratified by arm and visit. In comparison to the AMRFinderPlus analysis there is no apparent relationship between study visit/arm and prevalence. "
+#| fig.width: 13
+#| fig.height: 14
+
+resfinderFG_lookup <-
+  c(
+"AMC" =  "co-amoxiclav" ,
+"AMK" =  "amikacin",
+"AMP" =  "ampicillin",
+"AMX" =  "amoxycillin",
+"ATM" =  "aztreonam",
+"AZM" =  "azithromycin",
+"BAC" =  "bacitracin",
+"CAP" =  "capreomycin",
+"CAR" =  "carbenicillin",
+"CAZ" =  "ceftazidime",
+"CDR" =  "cefdinir",
+"CEF" =  "ceftiofur",
+"CEP" =  "cephalotin",
+"CHL" =  "chloramphenicol",
+"CLI" =  "clindamycin",
+"CTC" =  "chlortetracycline",
+"CIP" =  "ciprofloxacin",
+"CST" =  "colistin",
+"CTX" =  "cefotaxime",
+"CYC" =  "D-cycloserine",
+"ERY" =  "erythromycin",
+"FCL" =  "florfenicol",
+"FOF" =  "fosfomycin",
+"FEP" =  "cefepime",
+"FOX" =  "cefoxitin",
+"GEN" =  "gentamicin",
+"KAN" =  "kanamycin",
+"KSG" =  "kasugamycin",
+"MEM" =  "meropenem",
+"MIN" =  "minocycline",
+"MUP" =  "mupirocin",
+"OXY" =  "oxytetracycline",
+"PEN" =  "penicillin",
+"PIP" =  "piperacillin",
+"RIF" =  "rifampicin",
+"SDX" =  "sulfadimethoxine",
+"SIS" =  "sisomycin",
+"SPT" =  "spectinomycin",
+"SMZ" =  "sulfamethazine",
+"STG" =  "streptogramin",
+"STR" =  "streptomycin",
+"STX" =  "sulfamethoxazole",
+"SXT" =  "cotrimoxazole",
+"TCS" =  "triclosan",
+"TET" =  "tetracycline",
+"TGC" =  "tigecycline",
+"TIA" =  "tiamulin",
+"TMP" =  "trimethoprim",
+"TOB" =  "tobramycin",
+"TYL" =  "tylosin",
+"TZB" =  "tazobactam",
+"TZP" =  "pip-taz"
+)
+
+amr_fg <-
+  read_tsv(here("data_raw/resfinderFG/ECO_metagenomes_ResFinderFG_binary_matrix_v2.tsv")) |>
+    clean_names() |>
+    pivot_longer(-c(gene_symbol, class)) |>
+    mutate(name = gsub("^sample_[0-9]*_","", name)) |>
+    mutate(name = if_else(grepl("nc", name), gsub("...$", "", name), gsub("....$", "", name))) |>
+    filter(!grepl("nc_", name), !name %in% tolower(samples_to_drop)) |>
+    mutate(name =gsub("_", "", name)) |>
+    select(-class) |>
+    separate_wider_delim(gene_symbol, "|", names = c("class", "accession", "source", "subclass"))
+
+
+p_fg1 <-
+amr_fg |>
+  group_by(class, name) |>
+  summarise(value = if_else(any(value == 1), 1, 0)) |>
+  left_join(    
+    btESBL_stoolESBL |>
+      transmute(name = tolower(lab_id),
+arm = arm) |>
+      unique(),
+    by = join_by(name == name)) |>
+  filter(!is.na(arm), value == 1) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    ))
+    # subclass = str_to_title(class)
+  ) |>
+  unique() |>
+  ggplot(aes(fct_infreq(class))) +
+  geom_bar() +
+  coord_flip() +
+  facet_wrap(~ arm, ncol = 3, scale= "free_x") +
+  theme_bw() +
+  labs(x = "Gene annotation")
+
+# amr_fg_matrix <-
+# amr_fg |>
+#     select(c(class, name, value)) |>
+#     pivot_wider(id_cols = name, names_from =
+#       class, values_from = value,
+#       values_fn = sum) |>
+#     mutate(across(where(is.numeric), \(x) if_else(x > 0, 1,0)))
+#
+#
+# amr_fg_matrix <- amr_fg_matrix[, -1]
+#
+# amr_fg_matrix <- as.data.frame(amr_fg_matrix)
+#
+#
+# library(pheatmap)
+#
+# pheatmap(amr_fg_matrix)
+#
+#
+# gt <- pheatmap(amr_fg_matrix, filename="image.png")$gtable
+# ggsave("image.pdf", plot=gt, width = 10, height = 10)
+#
+
+
+
+p_fg2 <-
+amr_fg |>
+  left_join(    
+    btESBL_stoolESBL |>
+      transmute(name = tolower(lab_id),
+  arm = arm, pid = pid, visit = visit) |>
+      unique() ,
+    by = join_by(name == name)) |>
+  filter(!is.na(arm)) |>
+  group_by(pid, arm, visit, subclass) |>
+  summarise(value = if_else(any(value == 1), 1, 0)) |>
+  group_by(arm, visit, subclass) |>
+  summarise(
+    N = length(value),
+    n = sum(value)
+  ) |>
+  rowwise() |>
+  mutate(
+    prop = n / N,
+    lci = binom.test(n, N)$conf.int[[1]],
+    uci = binom.test(n, N)$conf.int[[2]]
+    # class = gsub("_", " ", class)
+  ) |>
+  mutate(
+    arm = case_when(
+      arm == 1 ~ "Hospitalised\nAntibiotic",
+      arm == 2 ~ "Hospitalised\nNo antibiotic",
+      arm == 3 ~ "Community\nNo antibiotic"
+    ),
+    arm = factor(arm, levels = c(
+      "Hospitalised\nAntibiotic", "Hospitalised\nNo antibiotic",
+      "Community\nNo antibiotic"
+    ))
+    # subclass = str_to_title(class)
+  ) |>
+  mutate(
+    subclass = 
+    str_to_title( recode(subclass, !!! resfinderFG_lookup))
+) |>
+  # filter(grepl("gent|aminoglyco|kanamycin_quionolone", class))  |>
+  ggplot(aes(visit, prop, ymin = lci, ymax = uci, color = arm, group = arm)) +
+  geom_point(alpha = 0.7) +
+  geom_line(alpha = 0.7) +
+  geom_errorbar(width = 0, alpha = 0.7) +
+  facet_wrap(.~ subclass,ncol = 8, labeller = labeller(class = label_wrap_gen(25))) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 7)) +
+  scale_color_viridis_d() +
+  labs(color = "", x = "Study Visit", y = "Prevalence") +
+  theme(legend.position = "bottom")
+
+(p_fg1 / p_fg2) + plot_layout(heights = c(1.6,1)) + plot_annotation(tag_levels =
+  "A")
+
+ggsave(here("plots/sfig08.pdf"), height = 14, width = 13)
+ggsave(here("plots/sfig08.svg"), height = 14, width = 13)
+
+
+```
+
+## Supplementary Figure 9
+
+```{r}
+#| label: fig-sfig9
+#| fig-cap: "(A) Prevalence of ResFinderFG-identified resistance genes expected to confer resistance to given antimicrobial agents with binomial confidence intervals; (B) association of exposures (panels) with presence of resistance genes expected to confer resistance to given agents (y axis). Parameter values from beta parameters shown on x axis (see main text for details); error bars show 95% CrI. Parameter values for which 95% CrI do not cross 0 are highlighted in red."
+#| fig.width: 10
+#| fig.height: 10
+
+
+mod_sum_df <- 
+  read_rds(here("data_processed/resfinderFGmodel_summary-df.rda"))
+
+mod_draws <-
+  read_rds(here("data_processed/resfinderFGmodel_posterior-draws-list.rda"))
+
+outcome_vars <-
+ read_rds(here("data_processed/resfinderFGmodel_outcome-vars.rda"))
+
+
+fact_levels <-
+  mod_sum_df |>
+  filter(parameter == "beta[1]") |>
+  mutate(
+    outcome_var = 
+    str_to_title(recode(outcome_var, !!! resfinderFG_lookup))
+) |>
+  mutate(outcome_var = str_to_title(gsub("_", " ", outcome_var))) |>
+  arrange(desc(m)) |>
+  pull(outcome_var)
+
+
+p_fg_mod <-
+  mod_sum_df |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(
+    parameter =
+      case_when(
+        grepl("1", parameter) ~ "Ceftriaxone",
+        grepl("2", parameter) ~ "Hospitalisation",
+        grepl("3", parameter) ~ "Cotrimoxazole",
+        grepl("4", parameter) ~ "Ciprofloxacin",
+        grepl("5", parameter) ~ "Amoxicillin",
+        TRUE ~ parameter
+      )
+  ) |>
+  mutate(
+    outcome_var = 
+    str_to_title(recode(outcome_var, !!! resfinderFG_lookup))
+) |>
+  mutate(
+    outcome_var = str_to_title(gsub("_", " ", outcome_var)),
+    # outcome_var = str_wrap(outcome_var, width = 25),
+    outcome_var = factor(outcome_var, levels = fact_levels),
+    parameter = factor(
+      parameter,
+      levels = rev(c(
+        "Ceftriaxone", "Ciprofloxacin", "Cotrimoxazole",
+        "Amoxicillin", "Hospitalisation"
+      ))
+    )
+  ) |>
+  ggplot(aes(fct_rev(outcome_var), m, ymin = ll, ymax = hh, color = ll > 0)) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() +
+  facet_grid(~parameter, scales = "free") +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_manual(values = c("black", viridis_pal(option = "A")(6)[4])) +
+  labs(color = "", x = "Gene subclass", y = "Parameter Value") +
+  theme(legend.position = "none") +
+  scale_x_discrete(position = "top")
+
+p_fg_prev <-
+amr_fg |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")
+  ) |>
+  mutate(class = factor(class)) |>
+  group_by(pid, visit, subclass) |>
+  summarise(present = any(value == 1)) |>
+  group_by(subclass) |>
+  summarise(
+    n_present = sum(present),
+    n_total = length(present)
+  ) |>
+  rowwise() |>
+  mutate(
+    prop = n_present / n_total,
+    lci = binom.test(n_present, n_total)$conf.int[[1]],
+    uci = binom.test(n_present, n_total)$conf.int[[2]]
+  ) |>
+  mutate(
+    subclass = 
+    str_to_title( recode(subclass, !!! resfinderFG_lookup))
+) |>
+  ggplot(aes(fct_reorder(subclass, prop), prop, ymin = lci, ymax = uci)) +
+  geom_point(position = position_dodge(width = 0.6)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.6)) +
+  coord_flip() +
+  theme_bw() +
+  labs(x = "", y = "Proportion") +
+  scale_x_discrete(position = "top")
+
+p_fg_prev / p_fg_mod + plot_annotation(tag_levels = "A")
+
+ggsave(here("plots/sfig09.pdf"), width = 10, height = 10)
+ggsave(here("plots/sfig09.svg"), width = 10, height = 10)
+
+
+btESBL_exposures |>
+  left_join(btESBL_participants |>
+    select(pid, arm),
+    by = "pid") |>
+  filter(pid %in% included_participants, arm == 1) |>
+  select(-c(assess_type, died, hosp, arm,
+    tb, coart,
+    quin, coart, fluco, ampho, arte,
+    acicl
+    )) |> 
+  pivot_longer(-pid) |>
+  group_by(pid, name) |>
+  summarise(exp =
+    any(value == 1)) |> 
+  group_by(pid) |>
+  summarise(N = sum(exp)) |>
+  group_by(N) |> 
+  summarise(n = length(pid))
+
+
+```
+
+## Supplementary Figure 10
+
+```{r}
+#| label: fig-sfig10
+#| fig-cap: "hierarchically clustered heatmap of spearman correlation coefficient of presence of amr gene subclass (row) and taxon (column) - phylum (a), order (b), genus (c)."
 #| fig.width: 14
 #| fig.height: 24
 
@@ -2565,14 +2892,14 @@ p_s7a / p_s7b / p_s7c + plot_annotation(tag_levels = "A") + plot_layout(
     "collect"
 )
 
-ggsave(here("plots/sfig08.pdf"), width = 14, height = 24)
-ggsave(here("plots/sfig08.svg"), width = 14, height = 24)
+ggsave(here("plots/sfig10.pdf"), width = 14, height = 24)
+ggsave(here("plots/sfig10.svg"), width = 14, height = 24)
 ```
 
-## Supplementary Figure 9
+## Supplementary Figure 11
 
 ```{r}
-#| label: fig-sfig9
+#| label: fig-sfig11
 #| fig-cap: "Distribution of AMR genes/mutations identified in the E. coli metagenome-assembled genomes."
 #| fig.width: 12
 #| fig.height: 12
@@ -2602,15 +2929,15 @@ bind_rows(
   labs(x = "Gene", y = "Number of Samples", fill = "Gene Subclass", color = "Gene Subclass") +
   guides(fill = guide_legend(ncol = 1), color = guide_legend(ncol = 1))
 
-ggsave(here("plots/sfig09.pdf"), width = 12, height = 12)
-ggsave(here("plots/sfig09.svg"), width = 12, height = 12)
+ggsave(here("plots/sfig11.pdf"), width = 12, height = 12)
+ggsave(here("plots/sfig11.svg"), width = 12, height = 12)
 ```
 
-## Supplementary Figure 10
+## Supplementary Figure 12
 
 
 ```{r}
-#| label: fig-sfig10
+#| label: fig-sfig12
 #| fig-cap: "Parameter estimates (x-axis) from models predicting presence of AMRFinder defined resistance determinants of a given subclass (y-axis) for a given parameter (panels) alpha = parameter quantifying magnitude of within-participant correlation of samples; beta_0 = intercept of linear predictor;  length_scale parameter quantifying temporal association of samples within-participant; tau = decay constant of effect of covariates; sigma = standard deviation of normal distribution encoding per-participant intercept."
 #| fig.width: 10
 #| fig.height: 6
@@ -2618,7 +2945,7 @@ ggsave(here("plots/sfig09.svg"), width = 12, height = 12)
 
 
 ecoli_mod_sum_df |>
-  filter(grepl("sigma|alpha|length|tau|beta_0", parameter)) |>
+  filter(grepl("sigma|alpha|length|tau|beta_0|beta_s", parameter)) |>
   mutate(
     outcome_var = str_to_title(gsub("_", " ", outcome_var)),
     # outcome_var = str_wrap(outcome_var, width = 25),
@@ -2636,14 +2963,15 @@ ecoli_mod_sum_df |>
   theme(legend.position = "none") +
   scale_x_discrete(position = "top")
 
-ggsave(here("plots/sfig10.pdf"), width = 10, height = 6)
-ggsave(here("plots/sfig10.svg"), width = 10, height = 6)
+ggsave(here("plots/sfig12.pdf"), width = 10, height = 6)
+ggsave(here("plots/sfig12.svg"), width = 10, height = 6)
+
 ```
 
-## Supplementary Figure 11
+## Supplementary Figure 13
 
 ```{r}
-#| label: fig-sfig11
+#| label: fig-sfig13
 #| fig-cap: "Distribution of resistance genes in AMRFinder-defined subclasses that are increased E. coli metagenome-assembled genomes in association with (from top) cephalosporin, ciprofloxacin, cotrimoxazole and amoxicillin exposure, and hospitalisation; increased here is defined as lower limit of 95% credible interval of odds ratio for presence of gene given exposure > 1."
 #| fig.width: 14
 #| fig.height: 18
@@ -2688,7 +3016,7 @@ plot_top_genes_ecoli <- function(exposure, mod_sum_df, dfgene) {
   dfgene |>
     mutate(
       subclass = tolower(subclass),
-      subclass = str_to_title(sub("-|/", " ", subclass))
+      subclass = str_to_title(gsub("-|/", " ", subclass))
     ) |>
     filter(subclass %in% gene_categories) |>
     right_join(
@@ -2702,7 +3030,7 @@ plot_top_genes_ecoli <- function(exposure, mod_sum_df, dfgene) {
     mutate(arm = as.factor(arm)) |>
     mutate(
       subclass = factor(
-        str_to_title(sub("_", " ", subclass)),
+        str_to_title(gsub("_", " ", subclass)),
         levels = gsub("_", " ", gene_categories)
       )
     ) |>
@@ -2754,16 +3082,16 @@ p_cef / (p_cip + plot_spacer()) / (p_cotri + plot_spacer() + plot_spacer() + plo
   plot_layout(heights = c(4, 2, 1, 2, 2), guides = "collect") &
   theme(legend.position = "bottom")
 
-ggsave(here("plots/sfig11.pdf"), height = 18, width = 14)
-ggsave(here("plots/sfig11.svg"), height = 18, width = 14)
+ggsave(here("plots/sfig13.pdf"), height = 18, width = 14)
+ggsave(here("plots/sfig13.svg"), height = 18, width = 14)
 ```
 
 
-## Supplementary Figure 12
+## Supplementary Figure 14
 
 
 ```{r}
-#| label: fig-sfig12
+#| label: fig-sfig14
 #| fig-cap: "Number of samples included in analysis stratified by study visit and study arm."
 #| fig.width: 5
 #| fig.height: 5
@@ -2781,13 +3109,13 @@ otu_r_df |>
 
 sf
 
-ggsave(here("plots/sfig12.pdf"), sf, width = 5, height = 5)
-ggsave(here("plots/sfig12.svg"), sf, width = 5, height = 5)
+ggsave(here("plots/sfig14.pdf"), sf, width = 5, height = 5)
+ggsave(here("plots/sfig14.svg"), sf, width = 5, height = 5)
 ```
-## Supplementary Figure 13
+## Supplementary Figure 15
 
 ```{r}
-#| label: fig-sfig13
+#| label: fig-sfig15
 #| fig-cap: "Comparing rectal swab and stool samples. (A) Shannon (alpha) diversity; (B) principal coordinate plot of all-against-all Bray Curtis dissimilarity (beta diversity) with 95% confidence intervals assuming student T distribution stratified by sample type; (C) Proportion of reads assigned to a given phylum for each sample, ordered by proportion of Proteobacteria and stratified by sample type. Overall, rectal swab and stool samples are similar."
 #| fig.width: 12
 #| fig.height: 10
@@ -2833,8 +3161,7 @@ estimate_richness(biom, measures = "Shannon") |>
     geom_jitter(size = 0.5) +
   geom_boxplot(alpha = 0.5, outliers = FALSE) +
   theme_bw() +
-  labs(y = "Shannon Diversity", x = "", fill = "Sample Type", color =
-    "Sample Type") +
+  labs(y = "Shannon Diversity", x = "", fill = "Sample Type", color = "Sample Type") +
     theme(legend.position = "none")
 
 sf_b <-
@@ -2864,8 +3191,61 @@ sf <-
 
 sf
 
-ggsave(here("plots/sfig13.pdf"), sf, width = 12, height = 10)
-ggsave(here("plots/sfig13.svg"), sf, width = 12, height = 10)
+ggsave(here("plots/sfig15.pdf"), sf, width = 12, height = 10)
+ggsave(here("plots/sfig15.svg"), sf, width = 12, height = 10)
+
+
+```
+
+```{r}
+
+# extras for manuscript
+
+
+# subset_taxa(biom, Species == "sapiens")@otu_table@.Data -> human_reads
+#
+# biom@otu_table@.Data |>
+#   as_tibble(rownames = "tax_id") |>
+#   pivot_longer(-tax_id) |>
+#   group_by(name) |>
+#   summarise(reads = sum(value)) -> reads
+#
+#
+# reads |>
+#   left_join(
+#     btESBL_stoolESBL |>
+#   select(lab_id, sample_type)) |>
+#   group_by(sample_type) |>
+#   summarise(
+#     mean_reads = mean(reads)/1e6,
+#     sd_read = sd(reads)/1e6,
+#     mean_prop_human = mean(prop),
+#     sd_prop_human = sd(prop)
+#   )
+#
+# readstats <- read_tsv(here("data_raw/ECO_all_metagenomic_read_stats_for_JL_11_02_25.tab"))
+#
+# data.frame(lab_id = dimnames(human_reads)[[2]], hum_reads = human_reads[1:426]) |>
+#   left_join(
+#   readstats |>
+#   mutate(lab_id = str_extract(readstats$file, "C[0-9|A-Z]*(?=_)")) |>
+#   filter(lab_id != "C", !lab_id %in% samples_to_drop) |>
+#   group_by(lab_id) |>
+#   summarise(reads = sum(num_seqs)),
+#         by= join_by(lab_id == lab_id)) |>
+#   mutate(prop = hum_reads/reads) |>
+#   left_join(
+#     btESBL_stoolESBL |>
+#   select(lab_id, sample_type)) |>
+#   group_by(sample_type) |>
+#   summarise(
+#     median_reads = mean(reads)/1e6,
+#     lq_read = sd(reads)/1e6,
+#     mean_prop_human = mean(prop)*100,
+#     sd_prop_human = sd(prop)*100
+#   )
+#
+
 
 
 ```

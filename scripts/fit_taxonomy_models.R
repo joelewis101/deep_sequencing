@@ -178,7 +178,20 @@ df_mod <-
     values_from = time_since_exp
   ) |>
   mutate(across(matches("exp"), ~ if_else(is.na(.x), -1, .x))) |>
-  arrange(pid, t)
+  arrange(pid, t) |>
+  left_join(
+    btESBL_stoolESBL |>
+      transmute(
+        name = lab_id,
+        sample_type = case_when(
+          is.na(sample_type) ~ 1,
+          !is.na(sample_type) & sample_type == "stool" ~ 1,
+          TRUE ~ 0
+        )
+      ),
+    by = join_by(name)
+  ) |>
+  relocate(c(pid, sample_type))
 
 outcome_vars <- names(df_mod)[grepl("phylum|order|genus", names(df_mod))]
 
@@ -186,9 +199,8 @@ fitlistout <- list()
 drawslistout <- list()
 summarylistout <- list()
 
-# outcome_vars <- outcome_vars[1:3]
 
-mod <- cmdstan_model(here("negbin_gp_nopreds.stan"))
+mod <- cmdstan_model(here("negbin_gp_nopreds_stoolvswab.stan"))
 
 problem_models <- outcome_vars[grepl("Firm|Hypho|Desulf|Burkhol|Serrat", outcome_vars)]
 
@@ -218,7 +230,8 @@ for (i in seq_len(length(outcome_vars))) {
         ncol = 5
       ),
       y = df_mod[[outcome_vars[i]]],
-      d = log(df_mod$depth)
+      d = log(df_mod$depth),
+      stool = df_mod$sample_type
     )
 
   print("Extracting draws and saving to list")

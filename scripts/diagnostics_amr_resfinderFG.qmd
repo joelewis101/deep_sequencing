@@ -1,0 +1,121 @@
+---
+title: DASSIM deep sequencing resfinderFG models diagnostics - Gaussian Process models
+date: today
+date-format: "D MMMM YYYY"
+format:
+  html:
+    embed-resources: true
+engine: knitr
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Background
+
+Plot traceplots and MCMC diagnostics for deep sequencing resistome models -
+Gaussian Process models.
+
+```{r} 
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(blantyreESBL)
+library(patchwork)
+library(kableExtra)
+library(cmdstanr)
+library(bayesplot)
+
+
+mod_sum_df <- 
+  read_rds(here("data_processed/resfinderFGmodel_summary-df.rda"))
+
+drawslistout <- 
+  read_rds(here("data_processed/resfinderFGmodel_posterior-draws-list.rda"))
+
+fitlistout <-
+  read_rds(here("data_processed/resfinderFGmodel_fitted-model-list.rda"))
+
+mod_diagnostics_df <-
+  read_rds(here("data_processed/resfinderFGmodel_diagnostics.rda"))
+
+outcome_vars <- read_rds(here("data_processed/resfinderFGmodel_outcome-vars.rda"))
+
+```
+
+# Results
+
+## Model diagnostics
+
+```{r} 
+#| label: fig-diagnostics
+#| fig-cap: "MCMC model diagnostics"
+#| fig.height: 10
+#| fig.width: 10
+
+mod_diagnostics_df |>
+  select(-ebfmi) |>
+  pivot_longer(-outcome_var) |>
+  ggplot(aes(outcome_var, value)) +
+  geom_col() +
+  coord_flip() + 
+  facet_wrap(~ name)
+
+```
+## R-hat
+
+```{r} 
+#| label: fig-diagnostics-rhat
+#| fig-cap: "MCMC model rhat"
+#| fig.height: 15
+#| fig.width: 15
+
+map2(
+  fitlistout, outcome_vars, \(x,y) as_tibble(x$summary()) |> 
+    mutate(outcome_var = y)) -> te
+
+bind_rows(te) -> te
+
+te |> 
+  filter(!grepl("lp|gamma", variable)) |>
+  mutate(outcome_var = gsub("_", " ", outcome_var)) |>
+  ggplot(aes(variable, rhat)) +
+  geom_point() +
+  coord_flip() +
+  facet_wrap(~ outcome_var, labeller = labeller(outcome_var = label_wrap_gen(25))) 
+
+```
+
+## Traceplots
+
+```{r} 
+plotlist <- list()
+
+for (i in seq_len(length(outcome_vars))) {
+
+  plotlist[[i]] <- 
+  mcmc_trace(drawslistout[[i]],  regex_pars = "alpha|beta|sigma|tau") +
+  labs(title = outcome_vars[i])
+
+}
+
+
+```
+
+
+```{r}
+#| output: asis
+res <- map_chr(plotlist, \(plots) {
+  knitr::knit_child(text = c(
+    "```{r}",
+    "#| fig.height: 6",
+    "#| fig.width: 8",
+    "#| echo: false",
+    "plots",
+    "```",
+    ""), envir = environment(), quiet = TRUE)
+})
+cat(res, sep = '\n')
+```

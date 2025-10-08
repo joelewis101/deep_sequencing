@@ -95,13 +95,12 @@ df_mod <-
   mutate(exps = paste0("exp_", exps)) |>
   rowwise() |>
   mutate(
-    time_since_exp =
-      case_when(
-        is.na(end) ~ NA,
-        t > start & t <= end ~ 0,
-        t > end ~ t - end,
-        TRUE ~ -999
-      )
+    time_since_exp = case_when(
+      is.na(end) ~ NA,
+      t > start & t <= end ~ 0,
+      t > end ~ t - end,
+      TRUE ~ -999
+    )
   ) |>
   select(-c(start, end)) |>
   pivot_wider(
@@ -110,10 +109,22 @@ df_mod <-
     values_from = time_since_exp
   ) |>
   mutate(across(matches("exp"), ~ if_else(is.na(.x), -1, .x))) |>
-  arrange(pid, t)
+  arrange(pid, t) |>
+  left_join(
+    btESBL_stoolESBL |>
+      transmute(
+        lab_id = lab_id,
+        sample_type = case_when(
+          is.na(sample_type) ~ 1,
+          !is.na(sample_type) & sample_type == "stool" ~ 1,
+          TRUE ~ 0
+        )
+      ),
+    by = join_by(lab_id)
+  ) |>
+  relocate(c(pid, sample_type))
 
-
-mod <- cmdstan_model(here("lm.stan"))
+mod <- cmdstan_model(here("lm_stoolvswab.stan"))
 
 
 stan_data_list <-
@@ -137,9 +148,9 @@ stan_data_list <-
       ),
       ncol = 5
     ),
+    stool = df_mod$sample_type,
     y = df_mod$Shannon
   )
-
 
 fit <- mod$sample(
   data = stan_data_list,
@@ -148,7 +159,7 @@ fit <- mod$sample(
   # iter_warmup = 1000,
   # iter_sampling = 1000,
   refresh = 100,
-  # adapt_delta = 0.99
+  adapt_delta = 0.99
 )
 
 

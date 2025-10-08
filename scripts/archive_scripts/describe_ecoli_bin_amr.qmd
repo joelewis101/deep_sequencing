@@ -1,0 +1,494 @@
+---
+title: Describe E. coli bin resistome
+date: today
+date-format: "D MMMM YYYY"
+format:
+  html:
+    embed-resources: true
+engine: knitr
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Overview
+
+The overall resistome analysis used all the metagenome assemblies with
+AMRfinderplus. The assemblies were binned and those identified as E. coli had it
+run again with the E. coli specific options.
+
+The models fit to the presence/absence data are the same as the overall Gaussian
+process models.
+
+```{r}
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(blantyreESBL)
+library(patchwork)
+library(kableExtra)
+library(cmdstanr)
+library(bayesplot)
+
+# all samples
+df <-
+  read_tsv(
+    here(
+      "data_raw/ECO_AMRfinder_all_metagenomes_default_17_11_23/AMR_binary_matrix.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
+
+all_included_samples <-
+  df |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "sample_[0-9]{1,3}_([^_]*)_",
+      group = 1
+    )
+  ) |>
+  filter(name != "nc") |>
+  filter(!name %in% tolower(samples_to_drop)) |>
+  pull(name) |>
+  unique()
+
+dfgene <-
+  read_tsv(
+    here(
+      "data_raw/E_coli_bins_gene_output_13_12_24.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+
+dfmut <-
+  read_tsv(
+    here(
+      "data_raw/E_coli_bins_mut_output_13_12_24.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+dfgene <-
+  dfgene |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "sample_[0-9]{1,3}_([^_]*)_",
+      group = 1
+    )
+  ) |>
+  filter(!name %in% samples_to_drop) |>
+  unique() |>
+  mutate(type = "gene")
+
+dfmut <-
+  dfmut |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name = str_extract(
+      name,
+      "sample_[0-9]{1,3}_([^_]*)_",
+      group = 1
+    )
+  ) |>
+  filter(!name %in% samples_to_drop) |>
+  unique() |>
+  mutate(type = "mutation")
+
+metadata <-
+  btESBL_stoolESBL |>
+  mutate(
+    lab_id = tolower(lab_id),
+    assess_type = as.numeric(difftime(data_date, enroll_date, unit = "days"))
+  ) |>
+  select(pid, arm, visit, lab_id, assess_type) |>
+  filter(lab_id %in% all_included_samples)
+```
+
+# Results
+
+There are `r length(unique(dfgene$name))` samples in the gene table and `r length(unique(dfmut$name))`  in the mutation table - presumably these are all the samples (of the 426) that had *E. coli* assemblies. 
+
+## Number of samples
+
+```{r} 
+#| label: tbl-nsamples
+
+metadata |>
+  filter(lab_id %in% dfmut$name) |>
+  count(arm) |>
+  kbl(
+    caption = "Number of samples per arm",
+    format = "html",
+    table.attr = 'data-quarto-disable-processing="true"'
+  ) |>
+  kable_styling(full_width = FALSE)
+```
+
+## Gene distribution
+
+```{r} 
+#| label: fig-plotgenesandmuts2
+#| fig.cap: "Number of samples with a given gene (for mutations, only genes shown that occur 20 or more times"
+#| fig.height: 20
+#| fig.width: 10
+
+bind_rows(
+  dfgene,
+  dfmut
+) |>
+  filter(value == 1) |>
+  group_by(gene_symbol, type, class) |>
+  count() |>
+  filter(!(n < 20 & type == "mutation")) |>
+  ggplot(aes(fct_reorder(gene_symbol, n), n, color = class, fill = class)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~type, scales = "free")
+```
+
+
+```{r} 
+#| label: fig-plotgenesandmuts
+#| fig.cap: "Number of samples with a given gene (left), proportion of samples with a given gene subclass (right)"
+#| fig.height: 10
+#| fig.width: 15
+
+p_a <-
+bind_rows(
+  dfgene,
+) |>
+  filter(value == 1) |>
+  group_by(gene_symbol, type, class) |>
+  count() |>
+  filter(!(n < 20 & type == "mutation")) |>
+  ggplot(aes(fct_reorder(gene_symbol, n), n, color = class, fill = class)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw()
+
+p_b <-
+  dfgene |>
+  group_by(name, subclass) |>
+  summarise(present = any(value == 1)) |>
+  mutate(subclass = tolower(subclass),
+    subclass = gsub("\\/", "_", subclass)) |>
+  group_by(subclass) |>
+  summarise(n = sum(present),
+    N = length(present)) |>
+  rowwise() |>
+  mutate(pr = n/N,
+    lci = binom.test(n,N)$conf.int[[1]],
+    uci = binom.test(n,N)$conf.int[[2]]) |>
+  ggplot(aes(fct_reorder(subclass, pr), pr, ymin = lci, ymax = uci)) +
+  geom_point() +
+  geom_errorbar(width = 0) +
+  coord_flip() +
+  theme_bw()
+
+p_a + p_b
+
+
+```
+## Changes over time
+
+Proportion of all samples sent for deep sequencing that passes QC that have a
+gene in an E. coli bin of a given class are shown in [@fig-subclassbyvisit].
+
+
+```{r}
+#| label: fig-subclassbyvisit
+#| fig.width: 8
+#| fig.height: 8
+
+metadata |>
+  as_tibble() |>
+  left_join(
+    dfgene,
+    by = join_by(lab_id == name)
+  ) |>
+  group_by(pid, arm, visit, subclass, class) |>
+  summarise(present = any(value == 1, na.rm = TRUE)) |>
+  group_by(arm, visit, subclass, class) |>
+  summarise(n = sum(present)) |>
+  left_join(
+    metadata |>
+      group_by(visit, arm) |>
+      count(name = "N"),
+    by = join_by(visit == visit, arm == arm)
+  ) |>
+  rowwise() |>
+  mutate(
+    prop = n / N,
+    lci = binom.test(n, N)$conf.int[[1]],
+    uci = binom.test(n, N)$conf.int[[2]],
+    arm = as.character(arm)
+  ) |>
+  filter(!is.na(class)) |>
+  mutate(subclass = tolower(gsub("/", " ", subclass))) |>
+  ggplot(aes(visit, prop, ymin = lci, ymax = uci, color = arm)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(width = 0) +
+  facet_wrap(~subclass, labeller = labeller(subclass = label_wrap_gen(25)), ncol = 5) +
+  theme_bw()
+```
+
+## Model outputs 
+
+```{r}
+#| label: fig-amrgenesmod
+#| fig-cap: "Parameter estimates from regression models"
+#| fig.height: 10
+#| fig.width: 12
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(blantyreESBL)
+library(patchwork)
+library(kableExtra)
+library(tidytext)
+
+mod_sum_df <-
+  read_rds(here("data_processed/ECOLIgp_mod_sum_df.rda"))
+
+mod_sum_df |>
+  filter(grepl("beta|sigma|alpha|length|tau", parameter)) |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(parameter = 
+    case_when(grepl("1", parameter) ~ "cephalosporin",
+    grepl("2", parameter) ~ "hospitalisation",
+    grepl("3", parameter) ~ "cotrimoxazole",
+    grepl("4", parameter) ~ "ciprofloxacin",
+    grepl("5", parameter) ~ "amoxicillin",
+    TRUE ~ parameter)
+  ) |>
+  filter(parameter != "hospitalisation") |>
+  mutate(parameter = factor(parameter, levels = c("cephalosporin",
+"ciprofloxacin", "amoxicillin", "cotrimoxazole"))) |>
+  mutate(outcome_var = gsub("_", " ", outcome_var),
+         outcome_var = as.factor(outcome_var),
+         outcome_var = reorder_within(outcome_var, m, parameter)) |>
+  ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() +
+  facet_wrap(~ parameter, scales = "free", ncol = 2) +
+  scale_x_reordered() +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed")
+    
+  
+```
+
+```{r}
+#| label: fig-amrgenesmod2
+#| fig-cap: "Parameter estimates from regression models"
+#| fig.height: 12
+#| fig.width: 12
+
+mod_sum_df |>
+  filter(grepl("beta|sigma|alpha|length|tau", parameter)) |>
+  filter(!grepl("beta\\[[1|3|4|5]", parameter)) |>
+  mutate(parameter = 
+    case_when(grepl("1", parameter) ~ "cephalosporin",
+    grepl("2", parameter) ~ "hospitalisation",
+    grepl("3", parameter) ~ "cotrimoxazole",
+    grepl("4", parameter) ~ "ciprofloxacin",
+    grepl("5", parameter) ~ "amoxicillin",
+    TRUE ~ parameter)
+  ) |>
+  mutate(outcome_var = gsub("_", " ", outcome_var),
+         outcome_var = as.factor(outcome_var),
+         outcome_var = reorder_within(outcome_var, m, parameter)) |>
+  ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() +
+  facet_wrap(~ parameter, scales = "free", ncol = 2) +
+  scale_x_reordered() +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed")
+
+```
+
+## Gene subcategories that increase with exposure
+
+What are these genes that are associated with the relative exposures? Plot for
+each exposure the genes of all categories that have an effect where the 95% CrI
+is > 1 (i.e. we can be pretty sure of an effect).
+
+```{r}
+
+plot_df <-
+mod_sum_df |>
+  filter(grepl("beta\\[", parameter), ll > 0) |>
+  mutate(parameter = 
+    case_when(
+      grepl("1", parameter) ~ "b1_cephalosporin",
+      grepl("2", parameter) ~  "b2_hospitalisation",
+      grepl("3", parameter) ~ "b3_cotrimoxazole",
+      grepl("4", parameter) ~ "b4_ciprofloxacin",
+    grepl("5", parameter) ~ "b5_amoxicillin",
+    TRUE ~ parameter)
+  ) 
+
+exposures <- unique(plot_df$parameter) |> sort()
+
+plot_top_genes <- function(exposure, mod_sum_df, df) {
+ 
+  gene_categories <-
+    mod_sum_df |>
+      filter(parameter == exposure) |>
+      filter(ll > 0) |>
+      arrange(desc(m)) |>
+      pull(outcome_var)
+
+  df |>
+    mutate(
+      subclass = tolower(subclass),
+      subclass = gsub("-|/", "_", subclass)
+    ) |>
+    filter(subclass %in% gene_categories) |>
+    right_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)) |>
+        filter(lab_id %in% all_included_samples),
+       by = join_by(name == lab_id)
+        ) |>
+    filter(value == 1) |>
+    mutate(arm = as.factor(arm)) |>
+    mutate(
+    subclass = factor(
+        gsub("_", " ", subclass),
+        levels = gsub("_", " ", gene_categories))
+    ) |>
+    ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
+    geom_bar() +
+    facet_wrap(~ subclass, scales = "free", ncol = 3,
+      labeller = labeller(subclass = label_wrap_gen(25))) +
+    coord_flip() +
+    labs(title = paste0("Exposure: ", exposure),
+         x = "gene")
+
+
+}
+
+gene_plots <-
+  tibble(
+    exposure = as.factor(exposures),
+    plots = map(exposures, plot_top_genes, plot_df, dfgene)
+  )
+
+```
+
+```{r}
+#| output: asis
+res <- pmap_chr(gene_plots, \(exposure, plots) {
+  knitr::knit_child(text = c(
+    "## `r exposure`",
+    "```{r}",
+    "#| echo: false",
+    "#| fig.height : 8",
+    "plots",
+    "```",
+    ""), envir = environment(), quiet = TRUE)
+})
+cat(res, sep = '\n')
+```
+
+## Gene categories that decrease with exposure
+
+```{r}
+
+plot_df <-
+mod_sum_df |>
+  filter(grepl("beta\\[", parameter), hh < 0) |>
+  mutate(parameter = 
+    case_when(
+      grepl("1", parameter) ~ "b1_cephalosporin",
+      grepl("2", parameter) ~  "b2_hospitalisation",
+      grepl("3", parameter) ~ "b3_cotrimoxazole",
+      grepl("4", parameter) ~ "b4_ciprofloxacin",
+    grepl("5", parameter) ~ "b5_amoxicillin",
+    TRUE ~ parameter)
+  ) 
+
+exposures <- unique(plot_df$parameter) |> sort()
+
+plot_top_genes <- function(exposure, mod_sum_df, df) {
+ 
+  gene_categories <-
+    mod_sum_df |>
+      filter(parameter == exposure) |>
+      filter(hh < 0) |>
+      arrange(desc(m)) |>
+      pull(outcome_var)
+
+  df |>
+    mutate(
+      subclass = tolower(subclass),
+      subclass = gsub("-|/", "_", subclass)
+    ) |>
+    filter(subclass %in% gene_categories) |>
+    right_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)) |>
+        filter(lab_id %in% all_included_samples),
+       by = join_by(name == lab_id)
+        ) |>
+    filter(value == 1) |>
+    mutate(arm = as.factor(arm)) |>
+    mutate(
+    subclass = factor(
+        gsub("_", " ", subclass),
+        levels = gsub("_", " ", gene_categories))
+    ) |>
+    ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
+    geom_bar() +
+    facet_wrap(~ subclass, scales = "free", ncol = 3,
+      labeller = labeller(subclass = label_wrap_gen(25))) +
+    coord_flip() +
+    labs(title = paste0("Exposure: ", exposure),
+         x = "gene")
+
+
+}
+
+gene_plots <-
+  tibble(
+    exposure = as.factor(exposures),
+    plots = map(exposures, plot_top_genes, plot_df, dfgene)
+  )
+
+```
+
+```{r}
+#| output: asis
+res <- pmap_chr(gene_plots, \(exposure, plots) {
+  knitr::knit_child(text = c(
+    "## `r exposure`",
+    "```{r}",
+    "#| echo: false",
+    "#| fig.height : 6",
+    "plots",
+    "```",
+    ""), envir = environment(), quiet = TRUE)
+})
+cat(res, sep = '\n')
+```
+
+
+# Conclusion
+

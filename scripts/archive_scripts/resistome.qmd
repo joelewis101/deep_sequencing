@@ -1,0 +1,1330 @@
+---
+title: "DASSIM deep sequencing resistome analysis: bystander effect of antimicrobials on resistome"
+date: today
+date-format: "D MMMM YYYY"
+author: Joe Lewis
+format:
+  html:
+    toc: true
+    embed-resources: true
+engine: knitr
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Background
+
+## DASSIM study
+
+The DASSIM study recruited adults in Blantyre, Malawi, to three arms: 1) sepsis
+and antibiotic exposed (mostly ceftrixone), admitted to Queen Elizabeth Central
+Hospital (QECH) 2); admitted to QECH, no antibiotics 3) community members. Arms 2
+and 3 were age and sex matched to arm 1. Participants had stool or rectal swab
+samples collected at five time points (day 0,7, 28, 90, 180) which were cultured
+for ESBL-Enterobacterales (ESBL-E); isolates were whole-genome sequenced.
+Antibiotic-exposed participants had a rapid increase in ESBL-E carriage
+prevalence, hospitalised participants a more modest increase, all described
+[here](https://www.nature.com/articles/s41564-022-01216-7).
+
+## Research questions for shotgun metagenomics
+
+A subset of these samples (determined largely by logistics/resources) had total
+DNA extracted and deep sequenced (~ 11Gb). The questions we aimed to answer were
+
+* We've demonstrated the direct effect of antibiotic exposure on phenotypic ESBL
+carriage - but what are the bystander effects of antimicrobial exposure and
+hospitalisation on microbiome and resistome composition?
+
+* The rapid acquisition of ESBL-E in the antibiotic exposed could be due to
+enrichment of minority ESBL-E undetected by culture at baseline, or true
+hospital-associated transmission events, driven by antibiotic-induced loss of
+colonisation resistance. Hence:
+  + Is there any evidence of a role for microbiome in providing colonisation
+  resistance against acquisition of ESBL?
+  + Is there any evidence for detectible ESBL genes or ESBL-E strains in samples
+  in which no ESBL-E id detected by culture
+
+This document describes a look at the resistome, with a focus on comparing the
+cultured ESBL prevalence to that detected in the deep sequence dataset, and
+looking at the bystander effect of antimicrobial exposure on non-ESBL genes.
+
+# Methods
+
+AMRFinder with default settings! See sections below for methods on e.g. models
+as I go along.
+
+```{r} 
+
+# load data
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(blantyreESBL)
+library(patchwork)
+library(kableExtra)
+library(tidytext)
+library(blantyreSepsis)
+library(kableExtra)
+
+df <-
+  read_tsv(
+    here(
+      "data_raw/ECO_AMRfinder_all_metagenomes_default_17_11_23/AMR_binary_matrix.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+df <-
+  df |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name =
+    str_extract(
+      name,
+      "sample_[0-9]{1,3}_(.*)_(:?uncorrected_amr|amr)",
+      group = 1
+      )
+  ) |>
+  mutate(name = gsub("_uncorrected", "", name)) |>
+  pivot_wider(
+    id_cols = c(class, subclass, gene_symbol),
+  )
+
+df2 <-
+  df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  select(-c(class, subclass)) |>
+  pivot_longer(-gene_symbol) |>
+  filter(!grepl("^nc", name)) |>
+  pivot_wider(id_cols = name, names_from = gene_symbol, values_from = value) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")
+  )
+
+# filter samples to drop
+
+samples_to_drop <- 
+  read_lines(here("data_processed/samples_to_drop.txt"))
+
+df2 <- 
+  df2 |>
+  filter(!name %in% tolower(samples_to_drop))
+
+df <-
+  df |>
+    select(!matches(paste(tolower(samples_to_drop), collapse = "|")))
+
+```
+# Results
+
+## Describe number of samples
+
+In total there are `r sum(grepl("^ca", names(df)))` samples (and 
+`r sum(grepl("^n", names(df)))` negative controls). @tbl-nsamples shows number of
+participants and number of samples per participant.
+
+```{r} 
+#| label: tbl-nsamples
+#| tbl-cap: "Number of participants and samples sequenced"
+
+# how many participants?
+
+left_join(
+  df2 |>
+    select(pid, arm) |>
+    unique() |>
+    count(arm),
+  df2 |>  
+    group_by(pid) |>
+    mutate(n = n()) |>
+    group_by(arm) |>
+    summarise(n_samples =
+      paste0(median(n)," (", quantile(n, 0.25), "-", quantile(n, 0.75), ")")),
+  by = "arm") |>
+  kbl(col.names = c("arm",
+    "n participants", 
+    "n (IQR) samples per participant"),
+  format = "html",
+  table.attr = 'data-quarto-disable-processing="true"') |>
+  kable_styling(full_width = F)
+
+
+```
+
+## Participant demographics
+
+```{r}
+#| label: tbl-demog
+
+included_participants <-
+  df2 |>
+    pull(pid) |>
+    unique()
+
+btESBL_participants |>
+  filter(pid %in% included_participants) |>
+  select(calc_age, ptsex, keepanim, arm, hivstatus, hivonart, hivcpt) |>
+  blantyreSepsis::pretty_tbl_df() |>
+  filter(!levels %in% c("Male", "No")) |>
+  mutate(variable =
+    case_when(
+      levels == 1 ~ "Hospitalised/antibiotic exposed",
+      levels == 2 ~ "Hospitalised/antibiotic unexposed",
+      levels == 3 ~ "Community/antibiotic unexposed",
+      variable == "calc_age" ~ "Age (years) median (IQR)",
+      variable == "ptsex" ~ "Female sex",
+      variable == "keepanim" ~ "Animals at home",
+      grepl("eactive|Unknown", levels) ~ levels, 
+      variable == "hivonart" ~ "Of PLWHIV\nCurrent ART",
+      variable == "hivcpt" ~ "OF PLWHIV\nCurrent CPT",
+      TRUE ~ variable)) |>
+    select(-levels) |>
+  kbl(caption = "Characteristics of included participants") |>
+  kable_classic(full_width = FALSE) |>
+  pack_rows("Demographics", 1,3) |>
+  pack_rows("Study Arm", 4,6) |>
+  pack_rows("HIV status", 7,11) 
+```
+
+## Antimicrobial exposures
+
+```{r}
+#| label: tbl-abexp
+
+c("Amoxicillin" = "amoxy",
+  "Gentamicin" = "genta",
+  "Azithromycin" = "azithro",
+  "TB therapy" = "tb",
+  "Penicillin" = "benzy",
+  "Fluconazole" = "fluco",
+  "Ceftriaxone" = "cefo",
+  "Amphotericin" = "ampho",
+  "Quinine" = "quin",
+  "Chloramphenicol" = "chlora",
+  "LA" = "coart",
+  "Ciprofloxacin" = "cipro",
+  "Co-amoxiclav" = "coamo",
+  "Artesunate" = "arte",
+  "Cotrimoxazole" = "cotri",
+  "Clindamycin" = "clinda",
+  "Doxycycline" = "doxy",
+  "Erythromycin" = "erythro",
+  "Aciclovir" = "acicl",
+  "Flucloxacillin" = "fluclox",
+  "Metronidazole" = "metro",
+  "Streptomycin" = "strepto"
+  ) -> rename_lookup
+
+btESBL_exposures |>
+  filter(pid %in% included_participants) |>
+  select(-c(assess_type, died, hosp))  |>
+  rename(!!!rename_lookup) |>
+  pivot_longer(-pid) |> 
+  group_by(pid, name) |>
+  summarise(exposed = any(value == 1)) |>
+  group_by(name) |>
+  summarise(n = sum(exposed), N = length(exposed)) |>
+  arrange(desc(n)) |>
+  mutate(perc = paste0(sp_dc(100*n/N, 0),"%"),
+  exposed = paste0(n,"/", N, " (", perc,")")) |>
+  transmute(
+    Antimicrobial = name,
+    Exposed = exposed) |>
+  kbl(caption = "Antimicrobial exposures in the cohort") |>
+  kable_classic(full_width = FALSE)
+
+
+```
+
+## Describe resistance genes present
+
+@tbl-amrgeneprev and @fig-amrclassprev shows the prevalence of AMRFinder-defined
+AMR gene class, stratified by arm in the latter case; beta-lactam, trimethorpim,
+tetracyycline, sulfonamide and lincosamide/macrolide/streptogramin class genes
+all have prevalence > 90%. Note also that there are two samples in which plasmid
+mediated colistin resistance genes are identified: these are _mcr10_ and
+_mcr10.1_, both in admission samples of participants without prior
+hospitalisation in the last 3 months.
+
+@fig-amrclassprev suggests that there are some differences in prevalence in
+quiniolone and aminoglycoside/quinolone AMR genes between arms (higher in arm
+1); plus possibly phenicol, macrolide - these differences are explored below.
+
+@fig-amrgenes shows a simple plot of number of samples in which a given gene was
+identfied; in the interests of space only those genes present in 5 or more
+samples are shown.
+
+```{r} 
+#| label: fig-amrclassprev
+#| fig-cap: "Prevalence of AMR class resistance by study arm"
+#| fig.height: 6
+#| fig.width: 8
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")
+  ) |>
+  mutate(class = factor(class)) |>
+  group_by(pid, arm, visit, class) |>
+  summarise(present = any(value == 1)) |>
+  group_by(class, arm) |>
+  summarise(
+    n_present = sum(present),
+    n_total = length(present)
+  ) |>
+  rowwise() |>
+  mutate(
+    class = tolower(class),
+    prop = n_present / n_total,
+    lci = binom.test(n_present, n_total)$conf.int[[1]],
+    uci = binom.test(n_present, n_total)$conf.int[[2]],
+    arm = as.character(arm)
+  ) |>
+  ggplot(aes(fct_reorder(class, prop), prop, ymin = lci, ymax = uci, color = arm)) +
+  geom_point(position = position_dodge(width = 0.6)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.6)) +
+  coord_flip() +
+  theme_bw() +
+  labs(x =  "")
+
+```
+
+```{r} 
+#| label: fig-amrclasshist
+#| fig-cap: "Distribution of AMR class resistance by sample by study arm - count here is number of samples"
+#| fig.height: 6
+#| fig.width: 8
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")) |>
+  mutate(arm = as.factor(arm)) |>
+  mutate(class = factor(class)) |> 
+  summarise(pos = any(value == 1), .by = c(class, arm, name)) |>
+  filter(pos) |>
+  mutate(n_tot = length(unique(name)), .by = arm,
+         class = tolower(class)) |>
+  ggplot(aes(fct_infreq(class), fill = arm)) +
+  geom_bar() +
+  facet_wrap( ~ arm, scales = "free_x") +
+  coord_flip() +
+  geom_hline(aes(yintercept = n_tot), linetype = "dashed") +
+  theme_bw() +
+  labs(x = "gene class")
+
+```
+
+```{r}
+#| label: tbl-amrgeneprev
+#| tbl-cap: "Prevalence of AMRFinder-defined AMR gene class"
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")
+  ) |>
+  mutate(class = factor(class)) |>
+  group_by(pid, arm, visit, class) |>
+  summarise(present = any(value == 1)) |>
+  group_by(class) |>
+  summarise(
+    n_present = sum(present),
+    n_total = length(present)
+  ) |>
+  rowwise() |>
+  mutate(
+    class = tolower(class),
+    prop = n_present / n_total,
+    lci = binom.test(n_present, n_total)$conf.int[[1]],
+    uci = binom.test(n_present, n_total)$conf.int[[2]],
+    str = paste0(round(prop *100,0), 
+      "% (",
+      round(lci*100,0),
+      "-",
+      round(uci*100,0),"%)")
+  ) |>
+  arrange(desc(prop)) |>
+  select(class, str) |>
+  kbl(col.names = c("AMR gene class",
+    "Prevalence (95% CI)"),
+  format = "html",
+  table.attr = 'data-quarto-disable-processing="true"') |>
+  kable_styling(full_width = F)
+  
+
+```
+
+
+```{r} 
+#| label: fig-amrgenes
+#| fig-cap: "AMR genes present (excluding those genes present in <= 5 samples)"
+#| fig.height: 12
+#| fig.width: 12
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    by = c("name" = "lab_id")
+  ) |>
+  filter(value == 1) |>
+  group_by(gene_symbol, class, arm) |>
+  tally() |>
+  group_by(gene_symbol) |>
+  mutate(tot = sum(n)) |>
+  filter(n > 5) |>
+  ggplot(aes(fct_reorder(gene_symbol, tot), n, fill = class)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw() +
+  theme(axis.text.y = element_text(size = 8)) +
+  facet_wrap( ~ arm, scale = "free_x") +
+  scale_fill_viridis_d()
+
+```
+
+## Closer look at beta lactamases
+
+Focus now on beta lactamases; @fig-blprev shows the number of genes present
+stratified by AMRFinder defined beta-lactam subclass. A number of these
+(highlighted in red) are bacteroides-specific and so less clinically relevant -
+they will be excluded from some downstream analyses.
+
+Quite surprising perhaps is the number of carbapenemases; 7% of participants in
+arm 1 and 2 have a carbapenemase gene identified at least once - see
+@tbl-carbaprev.
+
+@fig-blactvstime shows prevalence of beta lactamase by participant stratified by
+visit and arm. Arm 1 here are antbiotic exposed by D7 (usually ceftriaxone)
+which accounts for the rise in ceftriaxone resistance determinants and
+phenotypic ESBL. See below for assessment of antimicrobial exposure on *other*
+resistance determinants. Important to note here also that the prevalence of
+phenotypic ESBL is mostly more than detection of cephalosporin resistance gene
+at most timepoints- in fact concordance between the tests is not great -
+@tbl-cefsensspec expresses this as sensitivity of gene presence for an ESBL
+phenotype reference standard. Some of this I think could be improved by curating
+the AMRFinder defined gene classes to restrict to ESBL; it seems to include (for
+example) OXA-1?
+
+```{r} 
+#| label: fig-blprev
+#| fig-cap: "Distribution of beta-lactamase genes stratified by AMRFinder-defined beta-lactamse subclass "
+#| fig.height: 6
+#| fig.width: 10
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name),
+  bacteroides_gene = if_else(
+      grepl("cfi|cbl|crx|cep|cfx", gene_symbol),
+      "bacteroides-restricted gene",
+      "not bacteroides restricted")) |>
+  filter(class == "BETA-LACTAM", subclass != "METHICILLIN") |>
+  filter(value == 1) |>
+  ggplot(aes(fct_rev(fct_infreq(gene_symbol)), fill = bacteroides_gene)) +
+  geom_bar() +
+  facet_wrap(~subclass, scales = "free") +
+  coord_flip() +
+  theme_bw()
+
+
+```
+
+```{r}
+#| label: tbl-carbaprev
+#| tbl-cap: "Proportion of participants with AMRFinder-defined beta-lactam subclass identfied (excludes bacteroides-specific genes)"
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  filter(
+    class == "BETA-LACTAM",
+    subclass != "METHICILLIN",
+    !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
+  ) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+  mutate(class = factor(subclass)) |>
+  group_by(pid, arm, class) |>
+  summarise(present = any(value == 1)) |>
+  group_by(class, arm) |>
+  summarise(
+    n_present = sum(present),
+    n_total = length(present)
+  ) |>
+  rowwise() |>
+  mutate(
+    class = tolower(class),
+    prop = n_present / n_total,
+    lci = binom.test(n_present, n_total)$conf.int[[1]],
+    uci = binom.test(n_present, n_total)$conf.int[[2]],
+    str = paste0(
+      n_present,"/", n_total, " (",
+      round(prop *100,0), 
+      "% [",
+      round(lci*100,0),
+      "-",
+      round(uci*100,0),"%])")
+  ) |>
+  select(class, arm, str) |>
+  pivot_wider(id_cols = class,
+    names_from = arm,
+    names_prefix = "Arm ",
+    values_from = str) |>
+  kbl(
+  format = "html",
+  table.attr = 'data-quarto-disable-processing="true"') |>
+  kable_styling(full_width = F) |>
+  add_header_above(
+    c(" " = 1,
+      "n/N (% [95% CI]) participants with\ngene identfied at least once" = 3))
+  
+```
+
+```{r}
+#| label: fig-blactvstime
+#| fig-cap: "Prevalence of beta-lactamse gene by class stratified by study visit and arm (left panel) and phenotypic ESBL-E presence (right panel). Bacteroides-specific genes excluded."
+#| fig.height: 8
+#| fig.width: 10
+
+
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  filter(
+    class == "BETA-LACTAM",
+    subclass != "METHICILLIN",
+    !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
+  ) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+  mutate(class = factor(subclass)) |>
+  group_by(pid, arm, visit, class) |>
+  summarise(present = any(value == 1)) |>
+  group_by(class, arm, visit) |>
+  summarise(
+    n_present = sum(present),
+    n_total = length(present)
+  ) |>
+  rowwise() |>
+  mutate(
+    class = tolower(class),
+    visit = as.character(visit),
+    prop = n_present / n_total,
+    lci = binom.test(n_present, n_total)$conf.int[[1]],
+    uci = binom.test(n_present, n_total)$conf.int[[2]]
+  ) |>
+  ggplot(aes(visit, prop, ymin = lci, ymax = uci, color = class, group = class)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(width = 0) +
+  facet_wrap(~ arm, ncol = 1) +
+  labs(title = "AMR genes present") +
+  theme_bw() +
+  scale_color_manual(values = viridis::viridis_pal(option = "plasma")(4)[1:3]) -> p_a
+
+
+# plot with phenotypic ECBL %
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  filter(
+    class == "BETA-LACTAM",
+    subclass != "METHICILLIN",
+    !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
+  ) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+  select(pid, arm, visit, ESBL) |>
+  unique() |>
+  group_by(arm, visit) |>
+  summarise(
+    N = length(ESBL),
+    n = sum(ESBL == "Positive")) |>
+  rowwise() |>
+  mutate(prop = n/N,
+    lci = binom.test(n,N)$conf.int[[1]],
+    uci = binom.test(n,N)$conf.int[[2]]) |>
+  ggplot(aes(visit, prop, ymin = lci, ymax = uci)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(width = 0) +
+  facet_wrap(~ arm, ncol = 1) +
+  ylim(c(0,1)) +
+  theme_bw() + 
+  labs(title = "Phenotypic ESBL")  -> p_b
+
+p_a + p_b
+
+```
+
+```{r}
+#| label: tbl-cefsensspec
+#| tbl-cap: "Concordance of detection of AMRFinder-defined cephalosproin resistance gene and phenotypic ESBL expressed as sensitivity and specificity of gene presence for ESBL reference standard. Bacteroides-specific genes excluded."
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  filter(
+    class == "BETA-LACTAM",
+    subclass != "METHICILLIN",
+    !grepl("cfi|cbl|crx|cep|cfx", gene_symbol)
+  ) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+    # filter(value == 1) |>
+  group_by(name, ESBL) |>
+  summarise(
+    ceph_gene_present = if_else(
+      any(subclass == "CEPHALOSPORIN" & value == 1),
+      "present",
+      "absent")) |>
+  ungroup() |>
+  count(ESBL, ceph_gene_present) |>
+  pivot_wider(id_cols = ESBL,
+    names_from = ceph_gene_present, 
+    values_from = n) |>
+  janitor::adorn_totals(where = c("row", "col")) |>
+  mutate(summary = case_when(
+    ESBL == "Negative" ~ paste0("Specificity = ", round(absent*100 / Total, 0),"%"),
+    ESBL == "Positive" ~ paste0("Sensitivity = ", round(present*100 / Total, 0),"%"),
+    TRUE ~ "")) |>
+  kbl(
+  format = "html",
+  table.attr = 'data-quarto-disable-processing="true"') |>
+  kable_styling(full_width = F) |>
+  add_header_above(
+    c(" " = 1,
+      "Cephalsporin resistance gene" = 2,
+      " " = 2))
+ 
+```
+
+## Bystander effect of antibiotic exposure
+
+Look now at prevalence of all antibiotic classes stratified by arm and visit.
+The aim here is to assess the effect of antimicrobial exposure on AMR genes
+other than beta lactamases.The prevalence of AMRFinder-defined AMR gene subclass
+by arm and visit is shown in @fig-amrvstime - note that this is _subclass_
+rather than _class_ (as is shown in @fig-amrclassprev, which is why the labels
+are not entirely clear )
+
+This suggests that several gene subclasses increase in response
+to antimicrobial exposure (i.e. they increase at visit 1 then fall off):
+
+* amikacin/kanamycin/quinolone/tobramycin
+* aminoglycoside
+* azithromycin/erythomycin/spiramycin/telithromycin
+* azithromycin/erythromycin/streptogramin b/tylosin
+* gentamicin
+
+Some other genes increase but it is a bit less clear cut (overlapping confidence
+intervals):
+
+* clindamycin/erythromycin/streptogramin b
+* rifamycin
+
+And vancomycin resistance genes seem to decrease at visit 1 - though this also
+is not clear cut. The actual genes within these classes are shown in
+@fig-amrgenesinc.
+
+Some interesting bits to pull out here - there was no macrolide exposure in the
+cohort but the macrolide-lincosaimde-strepotgramin (MLS) resistance gene _mphA_
+is very relevant in this setting, as it confers resistance to azithromycin in
+_Salmonellae_ (and other enterics). Also no aminoglycoside exposure but lots of
+increase in aminoglycoside genes. I quantify these effects with a modelling
+approach below.
+
+
+
+```{r}
+#| label: fig-amrvstime
+#| fig-cap: "Prevalence of AMRFinder defined AMR gene subclass gene stratified by study visit and arm"
+#| fig.height: 12
+#| fig.width: 12
+
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  # filter(
+  #   class != "BETA-LACTAM"
+  # ) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+  mutate(class = as.factor(tolower(subclass))) |>
+  filter(value == 1) |>
+  select(pid, name, arm, visit, class) |>
+  pivot_wider(
+    id_cols = c(pid, name, visit, arm),
+    names_from = class,
+    values_from = class,
+    values_fn = length,
+    values_fill = 0
+  ) |>
+  janitor::clean_names() |>
+  mutate(across(!matches("pid|name|arm|visit"), \(x) if_else(x > 0, 1, 0))) |>
+  pivot_longer(-c(pid, name, arm, visit),
+    names_to = "class"
+  ) |>
+  group_by(visit, arm, class) |>
+  summarise(
+    N = length(value),
+    n = sum(value)
+  ) |>
+  rowwise() |>
+  mutate(
+    prop = n / N,
+    lci = binom.test(n, N)$conf.int[[1]],
+    uci = binom.test(n, N)$conf.int[[2]],
+    class = gsub("_", " ", class)
+  ) |>
+  # filter(grepl("gent|aminoglyco|kanamycin_quionolone", class))  |>
+  ggplot(aes(visit, prop, ymin = lci, ymax = uci, color = as.factor(arm), group = arm)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(width = 0) +
+  facet_wrap(~class, labeller = labeller(class = label_wrap_gen(25)), ncol = 8) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 7))
+
+
+```
+
+```{r} 
+#| label: fig-amrgenesinc
+#| fig-cap: "Distribution of AMR genes that seem to be increased/decreased in arm 1 at visit 1 compared to arms 2 and 3"
+#| fig.height: 8
+#| fig.width: 8
+
+
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  filter(!grepl("^nc", name)) |>
+  mutate(name = gsub("_.*$", "", name)) |>
+  mutate(
+    class = tolower(class),
+    subclass = gsub("/", "_", tolower(subclass))
+  ) |>
+  filter(subclass %in%
+    c(
+      "amikacin_kanamycin_quinolone_tobramycin",
+      "aminoglycoside",
+      "gentamicin",
+      "azithromycin_erythromycin_spiramycin_telithromycin",
+      "azithromycin_erythromycin_streptogramin b_tylosin",
+      "vancomycin",
+      "clindamycin_erythromycin_streptogramin b",
+      "rifamycin"
+    )) |>
+  right_join(
+    semi_join(
+    btESBL_stoolESBL |>
+      select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+      mutate(lab_id = tolower(lab_id)),
+    df2,
+    by = join_by(lab_id == name)
+  ),
+     by = join_by(name == lab_id)
+      ) |>
+  filter(value == 1) |>
+  mutate(arm = as.character(arm),
+    subclass = gsub("_", " ", subclass)) |>
+  ggplot(aes(fct_infreq(gene_symbol), fill = arm, group = arm)) +
+  geom_bar() +
+  facet_wrap(~ subclass, scales = "free_y", labeller = labeller(subclass = label_wrap_gen(25))) +
+  coord_flip() +
+  theme_bw()
+
+
+```
+
+## Models of effect of antimicrobial exposure on resistome
+
+Here I've put some simple models of antimicrobial exposure together. Start with
+a simple radfnom intercept model per participant. In this model, the outcome is
+binary - presence or absence of any gene of the given subclass. The predictor
+variables are the same for each model:
+
+* ceftriaxone exposure
+* hospitalisation
+* cotrimoxazole exposure
+* ciprofloxacin exposure
+* amoxicillin exposure
+
+These are selected as they are the exposures that at least 10% of the cohort
+have experienced. Time-dependence is incorporated by allowing the effect of each
+exposure to decay in an exponential fashion, defined in the model by a time
+constant tau - the rate of decay is fitted by the model, and is defined to be
+the same for all exposures. 
+
+### Random intercept model
+
+Simplest is a random intercept model. Consider $n$ measurements of a binary
+outcome for $N$ participants; each may have a different number of measurements.
+We can construct a logistic regression model where the measurements $y_{i}, i =
+1,2 ... n$ are given by:
+
+$$
+y_{i} \sim \text{Bernoulli}(p_{i}) 
+$$
+and
+
+$$
+p_{i} = \text{logit}(\alpha + \sum_{j=1}^{j=n}{ x_{ij} \beta_{j}} + \sum_{k=1}^{k=N}{z_{ik}\gamma_{k}})
+$$
+
+Where $\alpha$ is the model intercept; $x_{ij}$ is the value of the $j$th
+covariate for observation $i$; $\gamma_{k}$ is the value of the random effect
+for patient $k$ and $z_{ik}$ is the width $N$, height $n$ design matrix that
+encodes which sample belongs to which patient, and the random intercept is fixed
+for each patient, no matter how close together or far apart in time the samples
+are, and drawn from a normal distribution:
+
+$$
+\gamma_{i} \sim \text{Normal}(0, \sigma)
+$$
+
+These models are not a great fit to the data (not shown here).
+
+### Correlated random effects
+
+We can generalise this random effect structure by allowing the random effects to
+be drawn from a multivariate normal distribution, with a covariance matrix that
+is distance-dependent. This is a Gaussian process model. Samples that are closer
+together in time from the same person are more correlated. Samples from
+different participants are uncorrelated. This is likely to be a better
+reflection of reality.
+
+So overall the regression formula becomes (in vector notation):
+
+$$
+\boldsymbol{y} \sim \text{Bernoulli}(\boldsymbol{p})
+$$
+Where the length $n$ vector $\boldsymbol{y}$ is the vector of observations and 
+$$
+\boldsymbol{p} = \text{logit}(\beta_{0} + \boldsymbol{X}\boldsymbol{\beta} +
+\boldsymbol{f})
+$$
+
+Where the scalar $\beta_{0}$ is the intercept, $\boldsymbol{\beta}$ is the vector of covariates
+(length equal to number of covariates), $\boldsymbol{X}$ is the matrix of
+covariates (each observation has a row of covariates), and $\boldsymbol{f}$ is a length
+$n$ vector with the gaussian process effect per observation, drawn from a multivariate
+normal distribution: 
+
+$$
+\boldsymbol{\gamma} \sim \text{MVN}(0, \boldsymbol{\Sigma})
+$$
+
+Where $\boldsymbol{\Sigma}$ is the covariance matrix; this encodes the temporal
+correlation of the samples. We make it a block-diagonal covariance matrix equal
+to 0 for samples from different participants, and an exponentiated quadratic
+kernel for samples from the same participant. That is, for a given pair of
+observations $i$ and $j$ with time difference $t_{ij}$ between them, the
+covariance is
+
+$$
+\Sigma_{ij} = \alpha^{2} \text{exp}(-\frac{-t^{2}_{ij}}{2l^{2}}) + \delta_{ij}\sigma^2
+$$
+
+Where $\delta_{ij}$ = 1 for $i=j$ and $0$ otherwise. 
+
+Here $\alpha$ encodes the magnitude of covariance and $l$ the temporal
+correlation. The parameter $\sigma^2$ is the variance of a two measurements
+taken at the same time - essentially the noise of repeated measurement. This is
+one of many possible choices: it's a common choice in gaussian process models.
+
+To make it easier computationally, and following the Stan user manual, we can
+use the fact that it is possible to rescale a multivariate normal distribution
+as the product of the Cholesky decomposition of the covariance matrix and an
+isotropic normal variable, i.e:
+
+$$
+\boldsymbol{L\eta} \sim \text{MVN}(0,\boldsymbol{\Sigma})
+$$
+Where 
+$$
+\boldsymbol{\eta} \sim \text{Normal}(\boldsymbol{0}, \boldsymbol{I})  
+$$
+and  
+$$
+\boldsymbol{L}^{T}\boldsymbol{L} = \boldsymbol{\Sigma}
+$$
+
+i.e. $\boldsymbol{L}$ is the Cholesky decomposition of $\boldsymbol{\Sigma}$.
+
+### Priors 
+
+The priors on $\boldsymbol{\beta}$ and $\beta_{0}$ are similar to previous (i.e.
+can be student t distribution or similar) and priors on $\alpha$ and $\sigma$
+(which are essentially scale parameters) can be similar. However to prior on $l$
+needs some thought or it can easily mess up the exploration of the posterior
+either if the prior puts to much weight on length parameters that imply
+correlation on a scale less than or more than the separation of the
+measurements. Following Stan user manual and some experimentation, an inverse
+gamma prior with parameters (2,2) seems pretty good.
+
+
+### Final models
+
+So the final model becomes
+
+$$ \boldsymbol{y} \sim \text{Bernoulli}(\boldsymbol{p}) $$
+Where the length $n$ vector $\boldsymbol{y}$ is the vector of observations and 
+$$ \boldsymbol{p} = \text{logit}(\beta_{0} + \boldsymbol{X}\boldsymbol{\beta} + \boldsymbol{f}) $$
+Where
+$$ \boldsymbol{f} = \boldsymbol{L\eta} $$
+$$ \boldsymbol{\eta} \sim \text{Normal}(\boldsymbol{0}, \boldsymbol{I}) $$
+$$ \boldsymbol{L}^{T}\boldsymbol{L} = \boldsymbol{\Sigma} $$
+
+Where the covariance matrix $\boldsymbol{\Sigma}$ for two samples $i$ and $j$
+seperated by time $t_{ij}$ is defined by
+
+$$ \Sigma_{ij} = \alpha^{2} \text{exp}(\frac{-t^{2}_{ij}}{2l^{2}}) + \delta_{ij}\sigma^2 $$
+
+Where $\delta_{ij}$ = 1 for $i=j$ and $0$ otherwise. 
+
+$\boldsymbol{X}$ is the matrix of covariates for a given sample (where 1 is
+present, 0 absent) and the value of any entry of this matrix encoding antibiotic
+exposure is 1 whilst exposure is ongoing and is allowed to decay a time $t$
+following cessation of exposure as:
+
+$$ \text{exp}(\frac{-t}{\tau}) $$
+
+With priors 
+$$\beta_{0}, \boldsymbol{\beta}, \sigma, \alpha, \tau \sim \text{studentT}(3\text{df}, 0, 3)$$
+$$l \sim \text{InvGamma}(2,2 )$$
+
+Where the time of sample collection variable is mean centred and scaled and time
+since antibiotic exposure is scaled by the SD of the time variable.In practice,
+we can fit each participant separately to avoid making the gigantic covariance
+matrix.
+
+### Results
+
+Based on the model diagnostics (traceplots and estimated bayesian fraction of
+miossing information EBFMI) this meodel is a better fit to the data from
+previous. Parameter estimates from the models are shown in @fig-amrgenesmod. The
+conclusions are largely unchanged from the simpler random intercept models.
+
+```{r}
+#| label: fig-amrgenesmod
+#| fig-cap: "Parameter estimates from regression models"
+#| fig.height: 18
+#| fig.width: 15
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(blantyreESBL)
+library(patchwork)
+library(kableExtra)
+library(tidytext)
+
+mod_sum_df <-
+  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+
+mod_sum_df |>
+  filter(grepl("beta|sigma|alpha|length|tau", parameter)) |>
+  mutate(parameter = 
+    case_when(grepl("1", parameter) ~ paste0("_", parameter, " - cephalosporin"),
+    # grepl("2", parameter) ~ paste0("_", parameter, " - hospitalisation"),
+    grepl("3", parameter) ~ paste0("_", parameter, " - cotrimoxazole"),
+    grepl("4", parameter) ~ paste0("_", parameter, " - ciprofloxacin"),
+    grepl("5", parameter) ~ paste0("_", parameter, " - amoxicillin"),
+    TRUE ~ parameter)
+  ) |>
+  filter(grepl("beta\\[", parameter)) |>
+  mutate(outcome_var = gsub("_", " ", outcome_var),
+         # outcome_var = str_wrap(outcome_var, width = 25),
+         outcome_var = as.factor(outcome_var),
+         outcome_var = reorder_within(outcome_var, m, parameter)) |>
+  ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() +
+  facet_wrap(~ parameter, scales = "free", ncol = 2,) +
+  scale_x_reordered() +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed") 
+
+
+```
+
+```{r}
+#| label: fig-correlation
+#| fig-cap: "Implied correlation of samples with time - one line for each gene model (the median value of length_scale). X here is the standardised time in days seperating any two samples, so one unit = 58 days"
+
+cross_join(
+  tibble( x = seq(0,5, by = 0.1)),
+  mod_sum_df |>
+    filter(parameter == "length_scale")
+) |>
+  mutate(
+   f = exp(-x^2 / (2* m)),
+   ll = exp(-x^2 / (2* ll)),
+   hh = exp(-x^2 / (2* hh))) |>
+  ggplot(aes(x,f, ymin = ll, ymax = hh, group = outcome_var)) +
+  geom_line(alpha = 0.5)
+```
+
+# Drilling down to genes
+
+## Gene subcategories that increase with exposure
+
+What are these genes that are associated with the relative exposures? Plot for
+each exposure the genes of all categories that have an effect where the 95% CrI
+is > 1 (i.e. we can be pretty sure of an effect).
+
+```{r}
+
+plot_df <-
+mod_sum_df |>
+  filter(grepl("beta\\[", parameter), ll > 0) |>
+  mutate(parameter = 
+    case_when(
+      grepl("1", parameter) ~ "b1_cephalosporin",
+      grepl("2", parameter) ~  "b2_hospitalisation",
+      grepl("3", parameter) ~ "b3_cotrimoxazole",
+      grepl("4", parameter) ~ "b4_ciprofloxacin",
+    grepl("5", parameter) ~ "b5_amoxicillin",
+    TRUE ~ parameter)
+  ) 
+
+exposures <- unique(plot_df$parameter) |> sort()
+
+plot_top_genes <- function(exposure, mod_sum_df, df) {
+ 
+  gene_categories <-
+    mod_sum_df |>
+      filter(parameter == exposure) |>
+      filter(ll > 0) |>
+      arrange(desc(m)) |>
+      pull(outcome_var)
+
+  df |>
+    mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+    pivot_longer(-c(gene_symbol, class, subclass)) |>
+    filter(!grepl("^nc", name)) |>
+    mutate(name = gsub("_.*$", "", name)) |>
+    mutate(
+      subclass = tolower(subclass),
+      subclass = gsub("-|/", "_", subclass)
+    ) |>
+    filter(subclass %in% gene_categories) |>
+    right_join(
+      semi_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      df2,
+      by = join_by(lab_id == name)
+    ),
+       by = join_by(name == lab_id)
+        ) |>
+    filter(value == 1) |>
+    mutate(arm = as.factor(arm)) |>
+    mutate(
+    subclass = factor(
+        gsub("_", " ", subclass),
+        levels = gsub("_", " ", gene_categories))
+    ) |>
+    ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
+    geom_bar() +
+    facet_wrap(~ subclass, scales = "free", ncol = 3,
+      labeller = labeller(subclass = label_wrap_gen(25))) +
+    coord_flip() +
+    labs(title = paste0("Exposure: ", exposure),
+         x = "gene")
+
+
+}
+
+gene_plots <-
+  tibble(
+    exposure = as.factor(exposures),
+    plots = map(exposures, plot_top_genes, plot_df, df)
+  )
+
+```
+
+```{r}
+#| output: asis
+res <- pmap_chr(gene_plots, \(exposure, plots) {
+  knitr::knit_child(text = c(
+    "## `r exposure`",
+    "```{r}",
+    "#| echo: false",
+    "#| fig.height : 6",
+    "plots",
+    "```",
+    ""), envir = environment(), quiet = TRUE)
+})
+cat(res, sep = '\n')
+```
+
+## Gene categories that decrease with exposure
+
+
+```{r}
+
+plot_df <-
+mod_sum_df |>
+  filter(grepl("beta\\[", parameter), hh < 0) |>
+  mutate(parameter = 
+    case_when(
+      grepl("1", parameter) ~ "b1_cephalosporin",
+      grepl("2", parameter) ~  "b2_hospitalisation",
+      grepl("3", parameter) ~ "b3_cotrimoxazole",
+      grepl("4", parameter) ~ "b4_ciprofloxacin",
+    grepl("5", parameter) ~ "b5_amoxicillin",
+    TRUE ~ parameter)
+  ) 
+
+
+exposures <- 
+  unique(plot_df$parameter) |> sort()
+
+plot_top_genes <- function(exposure, mod_sum_df, df) {
+ 
+  gene_categories <-
+    mod_sum_df |>
+      filter(parameter == exposure) |>
+      filter(hh < 0) |>
+      arrange(desc(m)) |>
+      pull(outcome_var)
+
+  df |>
+    mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+    filter(!grepl("^nc", name)) |>
+    mutate(name = gsub("_.*$", "", name)) |>
+    mutate(
+      subclass = tolower(subclass),
+      subclass = gsub("-|/", "_", subclass)
+    ) |>
+    filter(subclass %in% gene_categories) |>
+    right_join(
+      semi_join(
+      btESBL_stoolESBL |>
+        select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
+        mutate(lab_id = tolower(lab_id)),
+      df2,
+      by = join_by(lab_id == name)
+    ),
+       by = join_by(name == lab_id)
+        ) |>
+    filter(value == 1) |>
+    mutate(arm = as.factor(arm)) |>
+    mutate(
+    subclass = factor(
+        gsub("_", " ", subclass),
+        levels = gsub("_", " ", gene_categories))
+    ) |>
+    ggplot(aes(fct_infreq(gene_symbol), fill = arm)) +
+    geom_bar() +
+    facet_wrap(~ subclass, scales = "free", ncol = 3,
+      labeller = labeller(subclass = label_wrap_gen(25))) +
+    coord_flip() +
+    labs(title = paste0("Exposure: ", exposure),
+         x = "gene")
+
+
+}
+
+gene_plots <-
+  tibble(
+    exposure = as.factor(exposures),
+    plots = map(exposures, plot_top_genes, plot_df, df)
+  )
+
+```
+
+```{r}
+#| output: asis
+res <- pmap_chr(gene_plots, \(exposure, plots) {
+  knitr::knit_child(text = c(
+    "## `r exposure`",
+    "```{r}",
+    "#| echo: false",
+    "#| fig.height : 6",
+    "plots",
+    "```",
+    ""), envir = environment(), quiet = TRUE)
+})
+cat(res, sep = '\n')
+```
+
+
+These largely come up with the same conclusions as eyeballing the plots above.
+Main takeaways:
+
+* cephalosporin exposure is associated with cephalosporin resistance but also 1)
+lots of MLS (macrolide-lincosaimde-strepotgramin) group resistance determinants
+and 2) aminoglycoside resisatnce determinants. Also looks to be associated with
+rifamycin resistance genes.
+
+* Cotrimoxazole has wide confidence intervals - some MLS gene association, but
+effect seems less clear than other drugs.
+
+* Ciprofloxacin - wide confidence intervals but some clear effects -
+quinolone/aminoglycoside association (which I guess would be expected) but some
+MLS genes - and cephalosporina and chloramphenicol (though CIs cross 0).
+Interestingly though it seem sto be associated with a *reduction* in lincosamide
+and macrolide resistance genes.
+
+* Amoxicillin - again wide CIs make it hard to draw any conclusions I think.
+
+# Conclusions
+
+Conclsuions here with the more complex models are pretty much unchanged form the
+simpler random effects models.
+
+I think there are a few interesting conclusions from this:
+
+* There are some interesting genes in there!
+  + _mcr_ plasmid-mediated colistin resistance genes - I don't recall these
+  being detected in Malawi before (though have not looked specifically for
+  publications)?
+  + Way more carbapenemases than we found in WGS - mostly OXA though also some
+  I'm not very familiar with and would need to check out how clinically relevant
+  they are.
+
+* ESBL-E prevalence by culture is higher at most time points then ESBL gene
+detection - i.e culture is more sensitive to ESBL-E detection (probably) than
+shotgun metagenomics. I mean, this is not surprising but these data are probably
+not going to help us answer the question as to whether ESBL-E that appear in
+culture following antibiotic exposure are actually present at low level and
+enriched for by antibiotic exposure.
+
+* Cephalosporin exposure is associated with increase in cephalosporin
+resistance genes - I mean, we knew this from culture but it is reassuring that
+this is true here.
+
+* Cephalosporin exposure has a pretty clear bystander effect on other resistance
+genes; it is is associated with an increase in:
+  + MLS (macrolide-lincosaimde-strepotgramin) resistance genes 
+  + aminoglycoside resistance genes 
+  + rifamycin resistance genes
+
+* Ciprofloxacin also has an effect on quinolone/quinolone-aminoglycoside genes
+and a bystander effect on some MLS genes; and seems to be associated with a
+reduction in lincosamide and macrolide genes. Though the effects here are less
+clear cut because quinolone exposure is much less common.
+
+# Discussion/next steps
+
+1) I think the mechanism of the resistome bystander effect can be defined - is
+this co-selection of resistance determinants carried by ESBL Gram negatives
+(plausible with aminoglycoside genes) or antibiotic exposure allowing
+proliferation of other species (Perhaps for MLS genes - ? enterococcus given
+cephalosporin resistance). We could do this by linking AMR gene and taxonomy
+either by the binned assemblies or just looking at correlation of microbiome
+composition and AMR gene presence (or, probably, both).
+
+2) It would be great to incorporate Viv's microbiome composition analysis into
+this both just as a description with a closer link to the antibiotic exposure
+metadata (to pin down antibiotic effect on microbiome composition) and to link
+to resistome as above.
+
+3) Also would like to look at the role of microbiome composition in providing
+colonisation resistance to ESBL and whether "acquired" ESBL-E strains following
+antibiotic exposure can be detected in initial samples - I guess these are for
+discussion.
+
+4) Also for discussion - Ed's work on the salmonella plasmid and how it fits in
+with this.

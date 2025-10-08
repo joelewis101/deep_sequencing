@@ -1,0 +1,309 @@
+---
+title: Adding correlated random effects to longitudinal data
+author: Joe Lewis
+date: today
+date-format: "D MMMM YYYY"
+format:
+  html:
+    embed-resources: true
+engine: knitr
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Background
+
+A simple random intercept per participant is not a great fit for repeated
+measures data where correlations between samples vary with time i.e. where
+samples are more likely to be correlated when they are close together. This can
+be accounted for with a time dependent correlation structure for the random
+effects. This document describes building and fitting such a model.
+
+# Method
+
+## Random intercept model
+
+Consider $n$ measurements of a binary outcome for $N$ participants; each may
+have a different number of measurements. We can construct a logistic regression
+model where the measurements $y_{i}, i = 1,2 ... n$ are given by:
+
+$$
+y_{i} \sim \text{Bernoulli}(p_{i}) 
+$$
+and
+
+$$
+p_{i} = \text{logit}(\alpha + \sum_{j=1}^{j=n}{ x_{ij} \beta_{j}} + \sum_{k=1}^{k=N}{z_{ik}\gamma_{k}})
+$$
+
+Where $\alpha$ is the model intercept; $x_{ij}$ is the value of the $j$th
+covariate for observation $i$; $\gamma_{k}$ is the value of the random effect
+for patient $k$ and $z_{ik}$ is the width $N$, height $n$ design matrix that
+encodes which sample belongs to which patient, and the random intercept is fixed
+for each patient, no matter how close together or far apart in time the samples
+are, and drawn from a normal distribution:
+
+$$
+\gamma_{i} \sim \text{Normal}(0, \sigma)
+$$
+
+## Correlated random effects
+
+We can generalise this random effect structure by allowing the random effects to
+be drawn from a multivariate normal distribution, with a covariance matrix that
+is distance-dependent. This is a Gaussian process model. Samples that are closer
+together in time from the same person are more correlated. Samples from
+different participants are uncorrelated.
+
+So overall the regression formula becomes (in vector notation):
+
+$$
+\boldsymbol{y} \sim \text{Bernoulli}(\boldsymbol{p})
+$$
+Where the length $n$ vector $\boldsymbol{y}$ is the vector of observations and 
+$$
+\boldsymbol{p} = \text{logit}(\beta_{0} + \boldsymbol{X}\boldsymbol{\beta} +
+\boldsymbol{f})
+$$
+
+Where the scalar $\beta_{0}$ is the intercept, $\boldsymbol{\beta}$ is the vector of covariates
+(length equal to number of covariates), $\boldsymbol{X}$ is the matrix of
+covariates (each observation has a row of covariates), and $\boldsymbol{f}$ is a length
+$n$ vector with the gaussian process effect per observation, drawn from a multivariate
+normal distribution: 
+
+$$
+\boldsymbol{\gamma} \sim \text{MVN}(0, \boldsymbol{\Sigma})
+$$
+
+Where $\boldsymbol{\Sigma}$ is the covariance matrix; this encodes the temporal
+correlation of the samples. We make it a block-diagonal covariance matrix equal
+to 0 for samples from different participants, and an exponentiated quadratic
+kernel for samples from the same participant. That is, for a given pair of
+observations $i$ and $j$ with time difference $t_{ij}$ between them, the
+covariance is
+
+$$
+\Sigma_{ij} = \alpha^{2} \text{exp}(-\frac{-t^{2}_{ij}}{2l^{2}}) + \delta_{ij}\sigma^2
+$$
+
+Where $\delta_{ij}$ = 1 for $i=j$ and $0$ otherwise. 
+
+Here $\alpha$ encodes the magnitude of covariance and $l$ the temporal
+correlation. The parameter $\sigma^2$ is the variance of a two measurements
+taken at the same time - essentially the noise of repeated measurement. This is
+one of many possible choices: it's a common choice in gaussian process models.
+
+To make it easier computationally, and following the Stan user manual, we can
+use the fact that it is possible to rescale a multivariate normal distribution
+as the product of the Cholesky decomposition of the covariance matrix and an
+isotropic normal variable, i.e:
+
+$$
+\boldsymbol{L\eta} \sim \text{MVN}(0,\boldsymbol{\Sigma})
+$$
+Where 
+$$
+\boldsymbol{\eta} \sim \text{Normal}(\boldsymbol{0}, \boldsymbol{I})  
+$$
+and  
+$$
+\boldsymbol{L}^{T}\boldsymbol{L} = \boldsymbol{\Sigma}
+$$
+
+i.e. $\boldsymbol{L}$ is the Cholesky decomposition of $\boldsymbol{\Sigma}$.
+
+### Priors 
+
+The priors on $\boldsymbol{\beta}$ and $\beta_{0}$ are similar to previous (i.e.
+can be student t distribution or similar) and priors on $\alpha$ and $\sigma$
+(which are essentially scale parameters) can be similar. However to prior on $l$
+needs some thought or it can easily mess up the exploration of the posterior
+either if the prior puts to much weight on length parameters that imply
+correlation on a scale less than or more than the separation of the
+measurements. The Stan manual suggests using an inverse gamma prior; this is a
+distribution whose shape is governed by two parameters; some examples are shown
+in @fig-invgamma. Picking values of the parameters as 2,2 gives a time
+dependent covariance of the form shown in @fig-priorpred. This seems like a
+reasonable choice. The time variable (x) when fitting the model is centred on
+the mean and scaled by the standard deviation so one unit here is equal to 56
+days.
+
+```{r} 
+#| label: fig-invgamma
+#| fig.cap: Inverse gamma functions
+
+library(invgamma)
+library(patchwork)
+library(tidyverse)
+
+expand_grid(
+  x = seq(0,5, by = 0.1),
+  alpha = c(1,2),
+  beta= c(1,2)) |>
+  mutate(group = paste0("alpha = ", alpha, ", beta = ", beta), 
+  f = dinvgamma(x, alpha, scale = beta)) |>
+  ggplot(aes(x,f, group =  group, color = group )) +
+  geom_line() +
+  labs(title = "examples of inverse gamma distributions")
+
+
+
+```
+
+```{r}
+#| label: fig-priorpred
+#| fig.cap: Prior predictive check -  covariance function from 10000 draws from inverse gamma distribution
+#| fig.width: 10
+#| fig.height: 5
+
+# prior pred checks
+
+expand_grid(
+  x = seq(0,3, by = 0.1),
+  draw = 1:10000) |>
+  mutate(alpha = 2, beta = 2) |>
+  group_by(draw) |>
+  mutate(l = rinvgamma(1, alpha, scale = beta)) |>
+  ungroup() |>
+  mutate(f = exp(-x^2 / (2*l^2))) |>
+  group_by(x) |>
+  summarise(med = median(f),
+    hhh = max(f),
+    lll = min(f),
+    hh = quantile(f, 0.025),
+    ll = quantile(f, 0.975),
+    h = quantile(f, 0.25),
+    l = quantile(f, 0.75),
+  ) |>
+  ggplot(aes(x, med, ymin = ll, ymax= hh)) +
+  geom_line() +
+  geom_ribbon(color = NA, alpha = 0.5) +
+  geom_ribbon(aes(x = x, ymin = l, ymax = h), color = NA, alpha = 0.5) + 
+  geom_ribbon(aes(x = x, ymin = lll, ymax = hhh), color = NA, alpha = 0.6) +
+  labs(title = "median, 50%, 95% and 100% intervals",
+  subtitle = "alpha = 2, beta = 2") -> a
+
+
+expand_grid(
+  x = seq(0,3, by = 0.1),
+  draw = 1:10000) |>
+  mutate(alpha = 2, beta = 2) |>
+  group_by(draw) |>
+  mutate(l = rinvgamma(1, alpha, scale = beta)) |>
+  ungroup() |>
+  mutate(f = exp(-x^2 / (2*l^2))) |>
+  ggplot(aes(x, f, group = draw)) +
+  geom_line(alpha = 0.3) + 
+  labs(title = "draws",
+  subtitle = "alpha = 2, beta = 2") -> b
+
+a + b
+
+```
+
+## Final models
+
+So the final model becomes
+
+$$ \boldsymbol{y} \sim \text{Bernoulli}(\boldsymbol{p}) $$
+Where the length $n$ vector $\boldsymbol{y}$ is the vector of observations and 
+$$ \boldsymbol{p} = \text{logit}(\beta_{0} + \boldsymbol{X}\boldsymbol{\beta} + \boldsymbol{f}) $$
+Where
+$$ \boldsymbol{f} = \boldsymbol{L\eta} $$
+$$ \boldsymbol{\eta} \sim \text{Normal}(\boldsymbol{0}, \boldsymbol{I}) $$
+$$ \boldsymbol{L}^{T}\boldsymbol{L} = \boldsymbol{\Sigma} $$
+
+Where the covariance matrix $\boldsymbol{\Sigma}$ for two samples $i$ and $j$
+seperated by time $t_{ij}$ is defined by
+
+$$ \Sigma_{ij} = \alpha^{2} \text{exp}(\frac{-t^{2}_{ij}}{2l^{2}}) + \delta_{ij}\sigma^2 $$
+
+Where $\delta_{ij}$ = 1 for $i=j$ and $0$ otherwise. 
+
+$\boldsymbol{X}$ is the matrix of covariates for a given sample (where 1 is
+present, 0 absent) and the value of any entry of this matrix encoding antibiotic
+exposure is 1 whilst exposure is ongoing and is allowed to decay a time $t$
+following cessation of exposure as:
+
+$$ \text{exp}(\frac{-t}{\tau}) $$
+
+With priors 
+$$\beta_{0}, \boldsymbol{\beta}, \sigma, \alpha, \tau \sim \text{studentT}(3\text{df}, 0, 3)$$
+$$l \sim \text{InvGamma}(2,2 )$$
+
+Where the time of sample collection variable is mean centred and scaled and time
+since antibiotic exposure is scaled by the SD of the time variable.In practice,
+we can fit each participant separately to avoid making the gigantic covariance
+matrix.
+
+# Results
+
+Parameter estimates from the models are shown in @fig-amrgenesmod. The
+conclusions are largely unchanged from the simpler random intercept models.
+
+```{r}
+#| label: fig-amrgenesmod
+#| fig-cap: "Parameter estimates from regression models"
+#| fig.height: 55
+#| fig.width: 8
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(blantyreESBL)
+library(patchwork)
+library(kableExtra)
+library(tidytext)
+
+mod_sum_df <- 
+  read_rds(here("data_processed/gp_mod_sum_df.rda"))
+
+mod_sum_df |>
+  filter(grepl("beta|sigma|alpha|length|tau", parameter)) |>
+  mutate(parameter = 
+    case_when(grepl("1", parameter) ~ paste0("_", parameter, " - cephalosporin"),
+    grepl("2", parameter) ~ paste0("_", parameter, " - hospitalisation"),
+    grepl("3", parameter) ~ paste0("_", parameter, " - cotrimoxazole"),
+    grepl("4", parameter) ~ paste0("_", parameter, " - ciprofloxacin"),
+    grepl("5", parameter) ~ paste0("_", parameter, " - amoxicillin"),
+    TRUE ~ parameter)
+  ) |>
+  mutate(outcome_var = gsub("_", " ", outcome_var),
+         outcome_var = as.factor(outcome_var),
+         outcome_var = reorder_within(outcome_var, m, parameter)) |>
+  ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() +
+  facet_wrap(~ parameter, scales = "free", ncol = 1) +
+  scale_x_reordered() +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed")
+    
+  
+
+
+```
+
+```{r}
+#| label: fig-correlation
+#| fig-cap: "Implied correlation of samples with time - one line for each gene model (the median value of length_scale)"
+
+cross_join(
+  tibble( x = seq(0,5, by = 0.1)),
+  mod_sum_df |>
+    filter(parameter == "length_scale")
+) |>
+  mutate(
+   f = exp(-x^2 / (2* m)),
+   ll = exp(-x^2 / (2* ll)),
+   hh = exp(-x^2 / (2* hh))) |>
+  ggplot(aes(x,f, ymin = ll, ymax = hh, group = outcome_var)) +
+  geom_line(alpha = 0.5)
+
+
+
+```

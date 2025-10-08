@@ -1,0 +1,930 @@
+---
+title: "DASSIM deep sequencing taxonomy analysis: bystander effect of antimicrobials on microbiome composition"
+date: today
+date-format: "D MMMM YYYY"
+author: Joe Lewis
+format:
+  html:
+    toc: true
+    embed-resources: true
+engine: knitr
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Background
+
+## DASSIM study
+
+The DASSIM study recruited adults in Blantyre, Malawi, to three arms: 1) sepsis
+and antibiotic exposed (mostly ceftrixone), admitted to Queen Elizabeth Central
+Hospital (QECH) 2); admitted to QECH, no antibiotics 3) community members. Arms 2
+and 3 were age and sex matched to arm 1. Participants had stool or rectal swab
+samples collected at five time points (day 0,7, 28, 90, 180) which were cultured
+for ESBL-Enterobacterales (ESBL-E); isolates were whole-genome sequenced.
+Antibiotic-exposed participants had a rapid increase in ESBL-E carriage
+prevalence, hospitalised participants a more modest increase, all described
+[here](https://www.nature.com/articles/s41564-022-01216-7).
+
+## Research questions for shotgun metagenomics
+
+A subset of these samples (determined largely by logistics/resources) had total
+DNA extracted and deep sequenced (~ 11Gb). The questions we aimed to answer were
+
+1) We've demonstrated the direct effect of antibiotic exposure on phenotypic ESBL
+carriage - but what are the bystander effects of antimicrobial exposure and
+hospitalisation on a) microbiome and b) resistome composition?
+
+2) The rapid acquisition of ESBL-E in the antibiotic exposed could be due to
+enrichment of minority ESBL-E undetected by culture at baseline, or true
+hospital-associated transmission events, driven by antibiotic-induced loss of
+colonisation resistance. Hence:
+  + Is there any evidence of a role for microbiome in providing colonisation
+  resistance against acquisition of ESBL?
+  + Is there any evidence for detectible ESBL genes or ESBL-E strains in samples
+  in which no ESBL-E id detected by culture
+
+This document describes a look at the microbiome composition (question 1b
+above), with a focus on i) describing the effect of antimicrobial exposure on
+microbiome composition using a modelling approach and ii) looking at correlation
+between presence of AMR genes and microbiome composition. It complements the
+look at the resistome  which I have shared already.
+
+This replicates some of Viv's analysis and develops a modelling approach to
+account for repeated measures within participant.
+
+# Methods
+
+Raw reads were classified by Kraken. Human and Streptophyta reads were filtered.
+Relative abundance of most prevalent Phyla, Orders within Proteobacteria and
+Genus within Enterobacterales were plotted against study arm and visit, as a
+proxy for antimicrobial exposure. Arm 1 participants were admitted to hospital
+and received antibiotic (largely ceftriaxone); arm 2 were hospitalised, received
+no antibiotics; arm 3 were in teh community. Visit 0 was at hospital admission,
+visit 1 at 7 days; visit 2 at 28 days; visit 3 at 90 days; visit 4 at 180 days.
+
+## Models
+
+The approach is to use a negative binomial model with taxa of interest as the
+outcome, and fit in in Stan in a Bayesian framework, with an offset term to
+account for differing sequence depth. Covariates are included: hospitalisation
+and antimicrobial exposure. Negative Binomial models (as I understand it) a
+common way to model these data. To account for multiple measurements of a single
+individual we can use the same Gaussian Process model that was used for the
+resistome analysis. Here, samples within-participant are correlated by using a
+per-participant effect, a with a covariance matrix that is distance-dependent.
+This is a Gaussian process model. Samples that are closer together in time from
+the same person are more correlated. Samples from different participants are
+uncorrelated. 
+
+The major difference from the resistome models is that we don't need a $\sigma$
+parameter which encodes the variance of samples at $/t=0$ - the overdispertion
+parameter of teh negative binomial distribution already accounts for this. If
+you try and include both parameters in a single model, you run into problems
+with non-identifiability (I tried)
+
+So overall the regression formula becomes (in vector notation):
+
+$$
+\boldsymbol{y} \sim \text{NegBinomial}(\boldsymbol{p}, \phi)
+$$
+Where the length $n$ vector $\boldsymbol{y}$ is the vector of observations (read
+counts for a given OTU), $\boldsymbol{p}$ (length $n$) is the sample-specific
+mean read count, $\phi$ is the negative binomial parameter. 
+
+$\boldsymbol{p}$ is then given by:
+
+$$
+\boldsymbol{p} = \text{log}(\beta_{0} + \boldsymbol{X}\boldsymbol{\beta} +
+\boldsymbol{f} + \text{log}(\boldsymbol{d}))
+$$
+
+Where the scalar $\beta_{0}$ is the intercept, $\boldsymbol{\beta}$ is the
+vector of covariates (length equal to number of covariates), $\boldsymbol{X}$ is
+the matrix of covariates (each observation has a row of covariates),
+$\boldsymbol{d}$ is the total number of reads for a given sample (length equal
+to number of samples), $\boldsymbol{f}$ is a length $n$ vector with the gaussian
+process effect per observation, drawn from a multivariate normal distribution: 
+
+$$
+\boldsymbol{\gamma} \sim \text{MVN}(0, \boldsymbol{\Sigma})
+$$
+
+Where $\boldsymbol{\Sigma}$ is the covariance matrix; this encodes the temporal
+correlation of the samples. We make it a block-diagonal covariance matrix equal
+to 0 for samples from different participants, and an exponentiated quadratic
+kernel for samples from the same participant. That is, for a given pair of
+observations $i$ and $j$ with time difference $t_{ij}$ between them, the
+covariance is
+
+$$
+\Sigma_{ij} = \alpha^{2} \text{exp}(-\frac{-t^{2}_{ij}}{2l^{2}})
+$$
+
+
+Here $\alpha$ encodes the magnitude of covariance and $l$ the temporal
+correlation. This is one of many possible choices: it's a common choice in
+gaussian process models.
+
+To make it easier computationally, and following the Stan user manual, we can
+use the fact that it is possible to rescale a multivariate normal distribution
+as the product of the Cholesky decomposition of the covariance matrix and an
+isotropic normal variable, i.e:
+
+$$
+\boldsymbol{L\eta} \sim \text{MVN}(0,\boldsymbol{\Sigma})
+$$
+Where 
+$$
+\boldsymbol{\eta} \sim \text{Normal}(\boldsymbol{0}, \boldsymbol{I})  
+$$
+and  
+$$
+\boldsymbol{L}^{T}\boldsymbol{L} = \boldsymbol{\Sigma}
+$$
+
+i.e. $\boldsymbol{L}$ is the Cholesky decomposition of $\boldsymbol{\Sigma}$.
+
+### Covariates
+
+The covariates act in the same way as in all of these models - there is a
+coefficent $\beta$ for a given exposure that acts with values $\beta$ while
+exposure is ongoing then decays with an exponential function with time constant
+$\tau$
+
+### Priors 
+
+The priors on $\boldsymbol{\beta}$ and $\beta_{0}$ are similar to previous (i.e.
+can be student t distribution or similar) and priors on $\alpha$ and $\sigma$
+(which are essentially scale parameters) can be similar. However to prior on $l$
+needs some thought or it can easily mess up the exploration of the posterior
+either if the prior puts to much weight on length parameters that imply
+correlation on a scale less than or more than the separation of the
+measurements. Following Stan user manual and some experimentation, an inverse
+gamma prior with parameters (3,3) seems pretty good.
+
+```{r} 
+
+library(tidyverse)
+library(phyloseq)
+library(here)
+library(blantyreESBL)
+library(microViz)
+library(janitor)
+library(cmdstanr)
+library(bayesplot)
+library(patchwork)
+library(pheatmap)
+
+biom <- import_biom(here("data_raw/vivien_taxonomy_reports/table.biom"))
+
+samples_to_drop <- read_lines(here("data_processed/samples_to_drop.txt"))
+
+# add metadata
+biom <-
+  ps_join(biom,
+    blantyreESBL::btESBL_stoolESBL |>
+      select(lab_id, pid, arm, visit, ESBL) |>
+      mutate(arm = as.character(arm)) |>
+      left_join(
+        btESBL_participants |>
+          transmute(
+            pid = pid,
+            abx = recieved_prehosp_ab,
+            visit = 0
+          ),
+        by = join_by(pid, visit)
+      ),
+    match_sample_names = "lab_id"
+  )
+
+# mung headings
+biom@tax_table@.Data <-
+  substring(biom@tax_table@.Data, 4)
+
+colnames(biom@tax_table@.Data) <-
+  c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+
+# filter homo sapients / streptophyta
+
+
+taxa_to_filter <-
+  c(
+    biom@tax_table@.Data |>
+      as.data.frame() |>
+      filter(grepl("sapiens", Species)) |>
+      rownames(),
+    biom@tax_table@.Data |>
+      as.data.frame() |>
+      filter(if_any(everything(), ~ grepl("Streptophyta", .x))) |>
+      rownames()
+  )
+
+biom <- prune_taxa(!taxa_names(biom) %in% taxa_to_filter, biom)
+
+# remove those with low reads
+biom <- 
+  prune_samples(
+    !sample_names(biom) %in% samples_to_drop,
+    biom
+  )
+         
+
+biom_bact <- subset_taxa(biom, Kingdom == "Bacteria")
+
+biom_bact_r <- transform_sample_counts(biom_bact, function(x) x / sum(x))
+
+otu_r_df <-
+  biom_bact_r@tax_table@.Data |>
+  as_tibble(rownames = "tax_id") |>
+  left_join(
+    biom_bact_r@otu_table@.Data |>
+      as_tibble(rownames = "tax_id"),
+    by = join_by(tax_id)
+  ) |>
+  pivot_longer(-c(tax_id, Kingdom, Phylum, Class, Order, Family, Genus, Species)) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(lab_id, pid, arm, visit) |>
+      # mutate(arm = as.character(arm)) |>
+      left_join(
+        btESBL_participants |>
+          transmute(
+            pid = pid,
+            admission_abx = recieved_prehosp_ab,
+            visit = 0
+          ),
+        by = join_by(pid, visit)
+      ),
+    by = join_by(name == lab_id)
+  ) |>
+  filter(!is.na(visit)) |>
+  filter(!name %in% toupper(samples_to_drop))
+
+
+```
+# Results
+
+In total there are `r sum(grepl("^CA", unique(otu_r_df$name)))` samples not
+including negative controls. Further details of participants and demographics
+are given in the resistome analysis.
+
+## Alpha and beta diversity
+
+Overall, the PCA plot of beta diversity (i.e. difference in species composition
+between samples) doesn't look as though there is any strong pattern in
+association with ESBL status by culture; but there are perhaps some associations
+by study arm/visit ([@fig-beta-div]).
+
+As Viv showed, there does seem to be a reduction in alpha diversity (species
+richness) for visit 1 arm 1, corresponding (probably) to antimicrobial exposure
+([@fig-alpha-div]). I've not modelled this to estimate the magnitude of the
+effect, but could do.
+
+
+```{r} 
+#| label: fig-beta-div
+#| fig-cap: "PCA of Bray-Curtis dissimilarity (calculated at species level, relative abundances) stratified by arm and visit. ESBL status by culture is shown. NA samples here are negative controls."
+
+
+distbiom <- distance(otu_table(biom_bact_r), method = "bray")
+
+pcoa_biom <-
+ordinate( otu_table(biom_bact_r), "PCoA", "bray")
+
+plot_ordination(biom_bact_r, pcoa_biom, color = "ESBL") +
+  facet_grid(arm ~ visit)
+
+
+
+```
+
+```{r}
+#| label: fig-beta-div2
+#| fig-cap: "PCA of Bray-Curtis dissimilarity (calculated at species level, relative abundances) stratified by arm and visit. Density plot for each arm/visit combination shows distribution of samples in PCA space; there is a suggestion I think of difference between arm 1, especially visit 0/1 (m,"
+pcoa_df <-
+plot_ordination(biom_bact_r, pcoa_biom, color = "ESBL", justDF = TRUE)
+
+ggplot(pcoa_df, aes(Axis.1, Axis.2, group = interaction(arm,visit))) +
+geom_density2d_filled(contour_var = "ndensity") +
+facet_grid(arm ~ visit)
+```
+
+
+
+```{r}
+#| label: fig-alpha-div
+#| fig-cap: "Shannon species richness stratified by arm and visit"
+
+# alpha diversity
+estimate_richness(biom, measures = "Shannon") |>
+  as_tibble(rownames = "lab_id") |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(lab_id, pid, arm, visit) |>
+      # mutate(arm = as.character(arm)) |>
+      left_join(
+        btESBL_participants |>
+          transmute(
+            pid = pid,
+            abx = recieved_prehosp_ab,
+            visit = 0
+          ),
+        by = join_by(pid, visit)
+      ),
+    by = join_by("lab_id")
+  ) |>
+  ggplot(aes(visit, Shannon, group = interaction(visit, arm), 
+    fill = as.factor(arm), color = as.factor(arm))) +
+  geom_boxplot(alpha = 0.5) +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() +
+theme_bw()
+
+
+```
+
+# Relative abundance of taxa following antimicrobial exposure
+
+## Descriptive analysis
+
+Start by plotting relative abundance of taxa stratified by visit and arm
+
+### Phyla
+
+As Viv saw, looks like there is lots of variartion by more Proteobacteria in arm
+1, and more at baseline and arm 1 ([@fig-phyla-vs-visit]) - possibly associated
+with antimicrobial exposure.
+
+```{r}
+#| label: fig-phyla-vs-visit
+#| fig-cap: "Relative abundance of top 10 Phyla stratified by visit and arm"
+#| fig.width: 10
+#| fig.height: 7
+
+rank_bacterial_phyla <-
+  otu_r_df |>
+  group_by(Phylum, name) |>
+  summarise(value = sum(value)) |>
+  group_by(Phylum) |>
+  summarise(median_relative_abundance = median(value)) |>
+  arrange(-median_relative_abundance)
+
+otu_r_df |>
+  group_by(name, pid, arm, visit, Phylum) |>
+  summarise(value = sum(value)) |>
+  filter(Phylum %in% rank_bacterial_phyla$Phylum[1:10]) |>
+  mutate(Phylum = factor(Phylum, levels = rank_bacterial_phyla$Phylum)) |>
+  ggplot(aes(Phylum, value, fill = Phylum)) +
+  geom_boxplot(outliers = FALSE) +
+  geom_point(alpha = 0.6, shape = 3) +
+  facet_grid(arm ~ visit) +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+```
+
+### Proteobacteria Orders
+
+Given that changes in Proteobacteria may be associated with antimicrobial
+exposure, plot relative abundance of Orders within then Phylum. The changes seem
+to be driven by increased relative abundance of Enterobacterales following
+antimicrobial exposure ([@fig-order-vs-visit]).
+
+
+```{r}
+#| label: fig-order-vs-visit
+#| fig-cap: "Relative abundance of top 10 Proteobacteria Orders stratified by visit and arm"
+#| fig.width: 10
+#| fig.height: 7
+
+
+rank_proteobacteria_orders <-
+  otu_r_df |>
+  filter(Phylum == "Proteobacteria") |>
+  group_by(Order, name) |>
+  summarise(value = sum(value)) |>
+  group_by(Order) |>
+  summarise(median_relative_abundance = median(value)) |>
+  arrange(-median_relative_abundance)
+
+otu_r_df |>
+  filter(Phylum == "Proteobacteria") |>
+  group_by(name, pid, arm, visit, Order) |>
+  summarise(value = sum(value)) |>
+  filter(Order %in% rank_proteobacteria_orders$Order[1:10]) |>
+  mutate(Order = factor(Order, levels = rank_proteobacteria_orders$Order)) |>
+  ggplot(aes(Order, value, fill = Order)) +
+  geom_boxplot(outliers = FALSE) +
+  geom_point(alpha = 0.6, shape = 3) +
+  facet_grid(arm ~ visit) +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### Enterobacterales Genera
+
+Again, replicating Viv's analysis, the changes in Enterobacterales abundance
+seem to be driven by changes in Escherichia ([@fig-genera-vs-visit]).
+
+
+```{r}
+#| label: fig-genera-vs-visit
+#| fig-cap: "Relative abundance of top 10 Enterobacterales genera stratified by visit and arm"
+#| fig.width: 10
+#| fig.height: 7
+
+rank_enterobacterales_genus <-
+  otu_r_df |>
+  filter(Order == "Enterobacterales") |>
+  group_by(Genus, name) |>
+  summarise(value = sum(value)) |>
+  group_by(Genus) |>
+  summarise(median_relative_abundance = median(value)) |>
+  arrange(-median_relative_abundance)
+
+otu_r_df |>
+  filter(Order == "Enterobacterales") |>
+  group_by(name, pid, arm, visit, Genus) |>
+  summarise(value = sum(value)) |>
+  filter(Genus %in% rank_enterobacterales_genus$Genus[1:11]) |>
+  filter(Genus != "") |>
+  mutate(Genus = factor(Genus, levels = rank_enterobacterales_genus$Genus)) |>
+  ggplot(aes(Genus, value, fill = Genus)) +
+  geom_boxplot(outliers = FALSE) +
+  geom_point(alpha = 0.6, shape = 3) +
+  facet_grid(arm ~ visit) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_cartesian(ylim = c(0, 0.3))
+
+
+```
+
+## Model absolute abundance
+
+Use the absolute abundance of top 3 Phyla, top 10 Proteobacteria Orders and top
+10 Enterobacterales as outcome variables, and fit the model above to each of
+these independently.
+
+### Parameter values excluding covariates
+
+These are not the most interesting outputs of teh models but a few bits pop out
+- see [@fig-model-params].
+
+To summarise
+
+* length_scale determines the temporal decay of correlation in samples. Small
+number = decays quickly (samples far apart in time are different). The units are
+scaled time in days so 1 unit ~ 55d
+
+* alpha is magnitude of temporal covariance - bug number, big effect
+
+* phi - negative binomial overdispertion parameter
+
+* beta_0 - intercept - essentialy exp(beta_0) if the proportion of reads that
+would be expected to belong to a given taxa - a measure of average abundance
+
+* tau - decay constant of effect of antibiotic - fixed for all antibiotics.
+scaled half life (by ln(2)) of decay of antibiotic effect
+
+Main thing of interest here I think is that length scale varies quite a bit - some
+taxa are not very correlated across time
+
+```{r}
+#| label: fig-model-params
+#| fig-cap: "Parameter values for each of the models excluding covariate values"
+#| fig.width: 10
+#| fig.height: 10
+
+mod_sum_df <- 
+  read_rds(here("data_processed/gp_taxonomy_mod_sum_df.rda"))
+
+mod_sum_df <-
+mod_sum_df |>
+  mutate(
+    parameter = case_when(
+      parameter == "beta[1]" ~ "beta_cef",
+      parameter == "beta[2]" ~ "beta_hosp",
+      parameter == "beta[3]" ~ "beta_cortrim",
+      parameter == "beta[4]" ~ "beta_cip",
+      parameter == "beta[5]" ~ "beta_amox",
+    TRUE ~ parameter)
+)
+
+p_a <-
+mod_sum_df |>
+  filter(!grepl("beta|lp_|eta", parameter)) |>
+  mutate(taxa = gsub("_.*$", "", outcome_var)) |>
+  filter(taxa == "phylum") |>
+  ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
+  geom_point(position = position_dodge(width = 0.1)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.1)) +
+  coord_flip() +
+labs(title = "Phyla: median (95% CI) paramater estimates")
+   
+p_b <-
+mod_sum_df |>
+  filter(!grepl("beta|lp_|eta", parameter)) |>
+  mutate(taxa = gsub("_.*$", "", outcome_var)) |>
+  filter(taxa == "order") |>
+  ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.5)) +
+  coord_flip() +
+labs(title = "Order: median (95% CI) paramater estimates")
+
+p_c <-
+mod_sum_df |>
+  filter(!grepl("beta|lp_|eta", parameter)) |>
+  mutate(taxa = gsub("_.*$", "", outcome_var)) |>
+  filter(taxa == "genus") |>
+  ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.5)) +
+  coord_flip() +
+labs(title = "Order: median (95% CI) paramater estimates")
+
+p_a / p_b / p_c
+
+
+
+```
+### Covariate values 
+
+These [@fig-model-params] are the most interesting output from the models I
+think. These values quantify the effect of a given antimicroial on a given taxa.
+The can be interpreted as exp(beta) being a multiplier on the absolute abundance
+of the taxa; hence value > 1 - acts to increase abundance, value < 0 - acts to
+decrease.
+
+These confirm I think the findings from plotting relatiev abundaces -
+ceftriaxone acts to increase Proteobacteria, decrease other phyla; within
+Proteobacteria, acts to increase Enterobacterales. At genus level it starts
+getting more uncertain but it doeslook to increase Escherichia. Ciprofloxacin
+looks similar. AMoxicillin and co-trimoxazole seem to have a much less
+pronounced effect. Hospitalisation perhaps is assocaited with increased
+Enterobacterales - but not clear cut.
+
+```{r}
+#| label: fig-model-params-covs
+#| fig-cap: "Parameter values for each of the models - covariate values"
+#| fig.width: 8
+#| fig.height: 12
+
+mod_sum_df |>
+  mutate(taxa = gsub("_.*$", "", outcome_var)) |>
+filter(grepl("beta", parameter), parameter != "beta_0") |>
+  ggplot(aes(outcome_var, m, ymin = ll, ymax = hh)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.5)) +
+  coord_flip() +
+  facet_grid(parameter ~ taxa, scales = "free") +
+  geom_hline(yintercept = 0, linetype = "dashed")
+
+```
+
+# Correlating AMR and microbiome composition
+
+```{r}
+#| label: fig-amr-corr-phylum
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene class and phylum abundance"
+#| fig.width: 6
+#| fig.height: 6
+
+
+
+df <-
+  read_tsv(
+    here(
+      "data_raw/ECO_AMRfinder_all_metagenomes_default_17_11_23/AMR_binary_matrix.tsv"
+    )
+  ) |>
+  janitor::clean_names()
+
+df <-
+  df |>
+  pivot_longer(-c(class, subclass, gene_symbol)) |>
+  mutate(
+    name =
+    str_extract(
+      name,
+      "sample_[0-9]{1,3}_(.*)_(:?uncorrected_amr|amr)",
+      group = 1
+      )
+  ) |>
+  mutate(name = gsub("_uncorrected", "", name)) |>
+  pivot_wider(
+    id_cols = c(class, subclass, gene_symbol),
+  )
+
+
+
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, class) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = class, values_from = amr_present) |>
+  left_join(
+    otu_r_df |>
+      group_by(name, pid, arm, visit, Phylum) |>
+      summarise(value = sum(value)) |>
+      filter(Phylum %in% rank_bacterial_phyla$Phylum[1:3]) |>
+      mutate(Phylum = factor(Phylum, levels = rank_bacterial_phyla$Phylum)) |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Phylum, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat
+
+rownames(cormat) <- cormat$name
+
+cormat <- cor(select(cormat, -name), method = "spearman")
+
+pheatmap(
+  cormat[
+    rownames(cormat) %in% c("Bacteroidetes", "Firmicutes", "Proteobacteria"),
+    !dimnames(cormat)[[1]] %in% c("Bacteroidetes", "Firmicutes", "Proteobacteria")
+  ],
+  color = viridis::viridis(100),
+)
+
+
+```
+
+
+
+```{r}
+#| label: fig-amr-corr-phylum2
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene subclass and phylum abundance"
+#| fig.width: 12
+#| fig.height: 12
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+    otu_r_df |>
+      group_by(name, pid, arm, visit, Phylum) |>
+      summarise(value = sum(value)) |>
+      filter(Phylum %in% rank_bacterial_phyla$Phylum, Phylum != "") |>
+      mutate(Phylum = factor(Phylum, levels = rank_bacterial_phyla$Phylum)) |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Phylum, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat
+
+rownames(cormat) <- cormat$name
+
+cormat <- cor(select(cormat, -name), method = "spearman")
+
+pheatmap(
+  cormat[
+    rownames(cormat) %in% rank_bacterial_phyla$Phylum,
+    !dimnames(cormat)[[1]] %in% rank_bacterial_phyla$Phylum
+  ],
+  color = viridis::viridis(100),
+)
+
+
+```
+
+
+
+```{r}
+#| label: fig-amr-corr-order
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene class and order abundance"
+#| fig.width: 6
+#| fig.height: 6
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, class) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = class, values_from = amr_present) |>
+  left_join(
+otu_r_df |>
+  filter(Phylum == "Proteobacteria") |>
+  group_by(name, pid, arm, visit, Order) |>
+  summarise(value = sum(value)) |>
+  filter(Order %in% rank_proteobacteria_orders$Order[1:10]) |>
+  mutate(Order = factor(Order, levels = rank_proteobacteria_orders$Order)) |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Order, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat_order
+
+
+
+rownames(cormat_order) <- cormat_order$name
+
+cormat_order <- cor(select(cormat_order, -name), method = "spearman")
+
+pheatmap(
+  cormat_order[
+    rownames(cormat_order) %in% rank_proteobacteria_orders$Order,
+    !dimnames(cormat_order)[[1]] %in% rank_proteobacteria_orders$Order
+  ],
+  color = viridis::viridis(100),
+)
+```
+
+```{r}
+#| label: fig-amr-corr-order2
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene subclass and order abundance"
+#| fig.width: 12
+#| fig.height: 12
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+otu_r_df |>
+  filter(Phylum == "Proteobacteria") |>
+  group_by(name, pid, arm, visit, Order) |>
+  summarise(value = sum(value)) |>
+  filter(Order %in% rank_proteobacteria_orders$Order, Order != "") |>
+  mutate(Order = factor(Order, levels = rank_proteobacteria_orders$Order)) |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Order, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat_order
+
+
+
+rownames(cormat_order) <- cormat_order$name
+
+cormat_order <- cor(select(cormat_order, -name), method = "spearman")
+
+pheatmap(
+  cormat_order[
+    rownames(cormat_order) %in% rank_proteobacteria_orders$Order,
+    !dimnames(cormat_order)[[1]] %in% rank_proteobacteria_orders$Order
+  ],
+  color = viridis::viridis(100),
+)
+
+```
+
+
+
+
+```{r}
+#| label: fig-amr-corr-genus
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene class and genus abundance" 
+#| fig.width: 6
+#| fig.height: 6
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, class) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = class, values_from = amr_present) |>
+  left_join(
+otu_r_df |>
+  filter(Order == "Enterobacterales") |>
+  group_by(name, pid, arm, visit, Genus) |>
+  summarise(value = sum(value)) |>
+  filter(Genus %in% rank_enterobacterales_genus$Genus[1:11]) |>
+  filter(Genus != "") |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Genus, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat_genus
+
+
+
+rownames(cormat_genus) <- cormat_genus$name
+
+cormat_genus <- cor(select(cormat_genus, -name), method = "spearman")
+
+pheatmap(
+  cormat_genus[
+    rownames(cormat_genus) %in% rank_enterobacterales_genus$Genus,
+    !dimnames(cormat_genus)[[1]] %in% rank_enterobacterales_genus$Genus
+  ],
+  color = viridis::viridis(100),
+)
+
+
+
+```
+
+
+
+```{r}
+#| label: fig-amr-corr-genus2
+#| fig-cap: "Spearman correlation between presence /absence of AMR gene subclass and genus abundance" 
+#| fig.width: 12
+#| fig.height: 12
+
+
+df |>
+  mutate(gene_symbol = make_clean_names(gene_symbol)) |>
+  pivot_longer(-c(gene_symbol, class, subclass)) |>
+  mutate(
+    name = toupper(gsub("_.*$", "", name)),
+    subclass = tolower(gsub("/", "-", subclass))
+  ) |>
+  filter(name != "NC") |>
+  filter(!name %in% samples_to_drop) |>
+  group_by(name, subclass) |>
+  summarise(amr_present = if_else(any(value == 1), 1, 0)) |>
+  pivot_wider(id_cols = name, names_from = subclass, values_from = amr_present) |>
+  left_join(
+otu_r_df |>
+  filter(Order == "Enterobacterales") |>
+  group_by(name, pid, arm, visit, Genus) |>
+  summarise(value = sum(value)) |>
+  filter(Genus %in% rank_enterobacterales_genus$Genus, Genus != "") |>
+  filter(Genus != "") |>
+      ungroup() |>
+      pivot_wider(id_cols = name, names_from = Genus, values_from = value),
+    by = join_by(name)
+  ) |>
+  as.data.frame() -> cormat_genus
+
+
+
+rownames(cormat_genus) <- cormat_genus$name
+
+cormat_genus <- cor(select(cormat_genus, -name), method = "spearman")
+
+pheatmap(
+  cormat_genus[
+    rownames(cormat_genus) %in% rank_enterobacterales_genus$Genus,
+    !dimnames(cormat_genus)[[1]] %in% rank_enterobacterales_genus$Genus
+  ],
+  color = viridis::viridis(100),
+)
+
+
+
+```
+
+# Conclusions
+
+This modelling approach is a reasonable way to undertand abundance data.
+Ceftriaxone seems to act to increase Proteobacteria, by causing increase in
+Enterobacterales abundance, particularly Escherichia. Ciprofloxacin seems
+similar but amoxicillin and co-trimoxazole have less of an effect. There may be
+an effect of hospitalisation in increasing Enterobaterales abundance.
+
+To discuss:
+
+* What are the implications for understanding the mechanism of ESBL acquisition
+  in this cohort? Does this imply an antibiotic enrichment effect rather than
+true transmission? 
+
+* What further work on these data should we consider?
