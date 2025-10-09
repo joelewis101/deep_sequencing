@@ -1926,9 +1926,9 @@ mod_sum_df <-
     )
   )
 
-p_a <-
+p_a <- 
   mod_sum_df |>
-  filter(!grepl("cef|hosp|cotrim|cip|amox|lp_|^eta|", parameter)) |>
+  filter(!grepl("cef|hosp|cotrim|cip|amox|lp_|^eta", parameter)) |>
   mutate(taxa = gsub("_.*$", "", outcome_var)) |>
   filter(taxa == "phylum") |>
   ggplot(aes(parameter, m, ymin = ll, ymax = hh, color = outcome_var)) +
