@@ -928,7 +928,7 @@ p_2f <-
   facet_wrap(~outcome, scales = "free") +
   theme_bw() +
   labs(
-      x = "Time (days)",
+    x = "Time (days)",
     y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
       "Exposure"
   ) +
@@ -956,7 +956,7 @@ p_2e <-
   facet_wrap(~outcome, scales = "free") +
   theme_bw() +
   labs(
-      x= "Time (days)",
+    x = "Time (days)",
     y = "Proportion", linetype = "Exposure", color = "Exposure", fill =
       "Exposure"
   ) +
@@ -969,7 +969,6 @@ p_2e <-
 
 ggsave(here("plots/fig2.pdf"), width = 15, height = 17)
 ggsave(here("plots/fig2.svg"), width = 15, height = 17)
-
 ```
 
 ## Figure 3
@@ -981,14 +980,14 @@ ggsave(here("plots/fig2.svg"), width = 15, height = 17)
 #| fig.width: 16
 
 
-mod_sum_df <- 
+mod_sum_df <-
   read_rds(here("data_processed/resfindermodel_summary-df.rda"))
 
 mod_draws <-
   read_rds(here("data_processed/resfindermodel_posterior-draws-list.rda"))
 
 outcome_vars <-
- read_rds(here("data_processed/resfindermodel_outcome-vars.rda"))
+  read_rds(here("data_processed/resfindermodel_outcome-vars.rda"))
 
 p_3a <-
   df |>
@@ -1633,7 +1632,6 @@ p_4a / p_4b / p_4c + plot_layout(heights = c(1, 1, 1)) + plot_annotation(tag_lev
 
 ggsave(here("plots/fig4.pdf"), width = 15, height = 12)
 ggsave(here("plots/fig4.svg"), width = 15, height = 12)
-
 ```
 
 
@@ -1727,7 +1725,6 @@ btESBL_exposures |>
       )
   ) |>
   kable_classic(full_width = FALSE)
-
 ```
 
 
@@ -1901,23 +1898,6 @@ sf
 ggsave(here("plots/sfig01.svg"), sf, width = 11, height = 8)
 ggsave(here("plots/sfig01.pdf"), sf, width = 11, height = 8)
 
-# how many days of combination?
-
-df_temp |>
-  left_join(
-    df_temp,
-    by = "id", relationship = "many-to-many"
-  ) |>
-  select(-c(id, value.x, value.y)) |>
-  filter(!name.x %in% exc, !name.y %in% exc) |>
-  mutate(name.x = factor(name.x), name.y = factor(name.y)) |>
-  group_by(name.x, name.y, .drop = FALSE) |>
-  count() |>
-  mutate(n = if_else(name.x == name.y, 0, n)) |>
-  ungroup() |>
-  mutate(cat = if_else(name.x == "Cotrimoxazole" | name.y == "Cotrimoxazole", "cotrim", "other")) |>
-  group_by(cat) |>
-  summarise(sum = sum(n, na.rm = TRUE))
 ```
 
 
@@ -2401,82 +2381,85 @@ ggsave(here("plots/sfig07.svg"), height = 18, width = 14)
 
 resfinderFG_lookup <-
   c(
-"AMC" =  "co-amoxiclav" ,
-"AMK" =  "amikacin",
-"AMP" =  "ampicillin",
-"AMX" =  "amoxycillin",
-"ATM" =  "aztreonam",
-"AZM" =  "azithromycin",
-"BAC" =  "bacitracin",
-"CAP" =  "capreomycin",
-"CAR" =  "carbenicillin",
-"CAZ" =  "ceftazidime",
-"CDR" =  "cefdinir",
-"CEF" =  "ceftiofur",
-"CEP" =  "cephalotin",
-"CHL" =  "chloramphenicol",
-"CLI" =  "clindamycin",
-"CTC" =  "chlortetracycline",
-"CIP" =  "ciprofloxacin",
-"CST" =  "colistin",
-"CTX" =  "cefotaxime",
-"CYC" =  "D-cycloserine",
-"ERY" =  "erythromycin",
-"FCL" =  "florfenicol",
-"FOF" =  "fosfomycin",
-"FEP" =  "cefepime",
-"FOX" =  "cefoxitin",
-"GEN" =  "gentamicin",
-"KAN" =  "kanamycin",
-"KSG" =  "kasugamycin",
-"MEM" =  "meropenem",
-"MIN" =  "minocycline",
-"MUP" =  "mupirocin",
-"OXY" =  "oxytetracycline",
-"PEN" =  "penicillin",
-"PIP" =  "piperacillin",
-"RIF" =  "rifampicin",
-"SDX" =  "sulfadimethoxine",
-"SIS" =  "sisomycin",
-"SPT" =  "spectinomycin",
-"SMZ" =  "sulfamethazine",
-"STG" =  "streptogramin",
-"STR" =  "streptomycin",
-"STX" =  "sulfamethoxazole",
-"SXT" =  "cotrimoxazole",
-"TCS" =  "triclosan",
-"TET" =  "tetracycline",
-"TGC" =  "tigecycline",
-"TIA" =  "tiamulin",
-"TMP" =  "trimethoprim",
-"TOB" =  "tobramycin",
-"TYL" =  "tylosin",
-"TZB" =  "tazobactam",
-"TZP" =  "pip-taz"
-)
+    "AMC" = "co-amoxiclav",
+    "AMK" = "amikacin",
+    "AMP" = "ampicillin",
+    "AMX" = "amoxycillin",
+    "ATM" = "aztreonam",
+    "AZM" = "azithromycin",
+    "BAC" = "bacitracin",
+    "CAP" = "capreomycin",
+    "CAR" = "carbenicillin",
+    "CAZ" = "ceftazidime",
+    "CDR" = "cefdinir",
+    "CEF" = "ceftiofur",
+    "CEP" = "cephalotin",
+    "CHL" = "chloramphenicol",
+    "CLI" = "clindamycin",
+    "CTC" = "chlortetracycline",
+    "CIP" = "ciprofloxacin",
+    "CST" = "colistin",
+    "CTX" = "cefotaxime",
+    "CYC" = "D-cycloserine",
+    "ERY" = "erythromycin",
+    "FCL" = "florfenicol",
+    "FOF" = "fosfomycin",
+    "FEP" = "cefepime",
+    "FOX" = "cefoxitin",
+    "GEN" = "gentamicin",
+    "KAN" = "kanamycin",
+    "KSG" = "kasugamycin",
+    "MEM" = "meropenem",
+    "MIN" = "minocycline",
+    "MUP" = "mupirocin",
+    "OXY" = "oxytetracycline",
+    "PEN" = "penicillin",
+    "PIP" = "piperacillin",
+    "RIF" = "rifampicin",
+    "SDX" = "sulfadimethoxine",
+    "SIS" = "sisomycin",
+    "SPT" = "spectinomycin",
+    "SMZ" = "sulfamethazine",
+    "STG" = "streptogramin",
+    "STR" = "streptomycin",
+    "STX" = "sulfamethoxazole",
+    "SXT" = "cotrimoxazole",
+    "TCS" = "triclosan",
+    "TET" = "tetracycline",
+    "TGC" = "tigecycline",
+    "TIA" = "tiamulin",
+    "TMP" = "trimethoprim",
+    "TOB" = "tobramycin",
+    "TYL" = "tylosin",
+    "TZB" = "tazobactam",
+    "TZP" = "pip-taz"
+  )
 
 amr_fg <-
   read_tsv(here("data_raw/resfinderFG/ECO_metagenomes_ResFinderFG_binary_matrix_v2.tsv")) |>
-    clean_names() |>
-    pivot_longer(-c(gene_symbol, class)) |>
-    mutate(name = gsub("^sample_[0-9]*_","", name)) |>
-    mutate(name = if_else(grepl("nc", name), gsub("...$", "", name), gsub("....$", "", name))) |>
-    filter(!grepl("nc_", name), !name %in% tolower(samples_to_drop)) |>
-    mutate(name =gsub("_", "", name)) |>
-    select(-class) |>
-    separate_wider_delim(gene_symbol, "|", names = c("class", "accession", "source", "subclass"))
+  clean_names() |>
+  pivot_longer(-c(gene_symbol, class)) |>
+  mutate(name = gsub("^sample_[0-9]*_", "", name)) |>
+  mutate(name = if_else(grepl("nc", name), gsub("...$", "", name), gsub("....$", "", name))) |>
+  filter(!grepl("nc_", name), !name %in% tolower(samples_to_drop)) |>
+  mutate(name = gsub("_", "", name)) |>
+  select(-class) |>
+  separate_wider_delim(gene_symbol, "|", names = c("class", "accession", "source", "subclass"))
 
 
 p_fg1 <-
-amr_fg |>
+  amr_fg |>
   group_by(class, name) |>
   summarise(value = if_else(any(value == 1), 1, 0)) |>
-  left_join(    
+  left_join(
     btESBL_stoolESBL |>
-      transmute(name = tolower(lab_id),
-arm = arm) |>
+      transmute(
+        name = tolower(lab_id),
+        arm = arm
+      ) |>
       unique(),
-    by = join_by(name == name)) |>
+    by = join_by(name == name)
+  ) |>
   filter(!is.na(arm), value == 1) |>
   mutate(
     arm = case_when(
@@ -2494,7 +2477,7 @@ arm = arm) |>
   ggplot(aes(fct_infreq(class))) +
   geom_bar() +
   coord_flip() +
-  facet_wrap(~ arm, ncol = 3, scale= "free_x") +
+  facet_wrap(~arm, ncol = 3, scale = "free_x") +
   theme_bw() +
   labs(x = "Gene annotation")
 
@@ -2524,13 +2507,16 @@ arm = arm) |>
 
 
 p_fg2 <-
-amr_fg |>
-  left_join(    
+  amr_fg |>
+  left_join(
     btESBL_stoolESBL |>
-      transmute(name = tolower(lab_id),
-  arm = arm, pid = pid, visit = visit) |>
-      unique() ,
-    by = join_by(name == name)) |>
+      transmute(
+        name = tolower(lab_id),
+        arm = arm, pid = pid, visit = visit
+      ) |>
+      unique(),
+    by = join_by(name == name)
+  ) |>
   filter(!is.na(arm)) |>
   group_by(pid, arm, visit, subclass) |>
   summarise(value = if_else(any(value == 1), 1, 0)) |>
@@ -2559,28 +2545,28 @@ amr_fg |>
     # subclass = str_to_title(class)
   ) |>
   mutate(
-    subclass = 
-    str_to_title( recode(subclass, !!! resfinderFG_lookup))
-) |>
+    subclass =
+      str_to_title(recode(subclass, !!!resfinderFG_lookup))
+  ) |>
   # filter(grepl("gent|aminoglyco|kanamycin_quionolone", class))  |>
   ggplot(aes(visit, prop, ymin = lci, ymax = uci, color = arm, group = arm)) +
   geom_point(alpha = 0.7) +
   geom_line(alpha = 0.7) +
   geom_errorbar(width = 0, alpha = 0.7) +
-  facet_wrap(.~ subclass,ncol = 8, labeller = labeller(class = label_wrap_gen(25))) +
+  facet_wrap(. ~ subclass, ncol = 8, labeller = labeller(class = label_wrap_gen(25))) +
   theme_bw() +
   theme(strip.text = element_text(size = 7)) +
   scale_color_viridis_d() +
   labs(color = "", x = "Study Visit", y = "Prevalence") +
   theme(legend.position = "bottom")
 
-(p_fg1 / p_fg2) + plot_layout(heights = c(1.6,1)) + plot_annotation(tag_levels =
-  "A")
+(p_fg1 / p_fg2) + plot_layout(heights = c(1.6, 1)) + plot_annotation(
+  tag_levels =
+    "A"
+)
 
 ggsave(here("plots/sfig08.pdf"), height = 14, width = 13)
 ggsave(here("plots/sfig08.svg"), height = 14, width = 13)
-
-
 ```
 
 ## Supplementary Figure 9
@@ -2592,23 +2578,23 @@ ggsave(here("plots/sfig08.svg"), height = 14, width = 13)
 #| fig.height: 10
 
 
-mod_sum_df <- 
+mod_sum_df <-
   read_rds(here("data_processed/resfinderFGmodel_summary-df.rda"))
 
 mod_draws <-
   read_rds(here("data_processed/resfinderFGmodel_posterior-draws-list.rda"))
 
 outcome_vars <-
- read_rds(here("data_processed/resfinderFGmodel_outcome-vars.rda"))
+  read_rds(here("data_processed/resfinderFGmodel_outcome-vars.rda"))
 
 
 fact_levels <-
   mod_sum_df |>
   filter(parameter == "beta[1]") |>
   mutate(
-    outcome_var = 
-    str_to_title(recode(outcome_var, !!! resfinderFG_lookup))
-) |>
+    outcome_var =
+      str_to_title(recode(outcome_var, !!!resfinderFG_lookup))
+  ) |>
   mutate(outcome_var = str_to_title(gsub("_", " ", outcome_var))) |>
   arrange(desc(m)) |>
   pull(outcome_var)
@@ -2629,9 +2615,9 @@ p_fg_mod <-
       )
   ) |>
   mutate(
-    outcome_var = 
-    str_to_title(recode(outcome_var, !!! resfinderFG_lookup))
-) |>
+    outcome_var =
+      str_to_title(recode(outcome_var, !!!resfinderFG_lookup))
+  ) |>
   mutate(
     outcome_var = str_to_title(gsub("_", " ", outcome_var)),
     # outcome_var = str_wrap(outcome_var, width = 25),
@@ -2657,7 +2643,7 @@ p_fg_mod <-
   scale_x_discrete(position = "top")
 
 p_fg_prev <-
-amr_fg |>
+  amr_fg |>
   left_join(
     btESBL_stoolESBL |>
       select(pid, lab_id, arm, visit, ESBL, enroll_date, data_date) |>
@@ -2679,9 +2665,9 @@ amr_fg |>
     uci = binom.test(n_present, n_total)$conf.int[[2]]
   ) |>
   mutate(
-    subclass = 
-    str_to_title( recode(subclass, !!! resfinderFG_lookup))
-) |>
+    subclass =
+      str_to_title(recode(subclass, !!!resfinderFG_lookup))
+  ) |>
   ggplot(aes(fct_reorder(subclass, prop), prop, ymin = lci, ymax = uci)) +
   geom_point(position = position_dodge(width = 0.6)) +
   geom_errorbar(width = 0, position = position_dodge(width = 0.6)) +
@@ -2694,27 +2680,6 @@ p_fg_prev / p_fg_mod + plot_annotation(tag_levels = "A")
 
 ggsave(here("plots/sfig09.pdf"), width = 10, height = 10)
 ggsave(here("plots/sfig09.svg"), width = 10, height = 10)
-
-
-btESBL_exposures |>
-  left_join(btESBL_participants |>
-    select(pid, arm),
-    by = "pid") |>
-  filter(pid %in% included_participants, arm == 1) |>
-  select(-c(assess_type, died, hosp, arm,
-    tb, coart,
-    quin, coart, fluco, ampho, arte,
-    acicl
-    )) |> 
-  pivot_longer(-pid) |>
-  group_by(pid, name) |>
-  summarise(exp =
-    any(value == 1)) |> 
-  group_by(pid) |>
-  summarise(N = sum(exp)) |>
-  group_by(N) |> 
-  summarise(n = length(pid))
-
 
 ```
 
@@ -2965,7 +2930,6 @@ ecoli_mod_sum_df |>
 
 ggsave(here("plots/sfig12.pdf"), width = 10, height = 6)
 ggsave(here("plots/sfig12.svg"), width = 10, height = 6)
-
 ```
 
 ## Supplementary Figure 13
@@ -3097,8 +3061,8 @@ ggsave(here("plots/sfig13.svg"), height = 18, width = 14)
 #| fig.height: 5
 
 sf <-
-otu_r_df |>
-  select(pid,arm,visit) |>
+  otu_r_df |>
+  select(pid, arm, visit) |>
   unique() |>
   mutate(arm = as.character(arm)) |>
   ggplot(aes(visit, fill = arm, group = arm)) +
@@ -3121,19 +3085,19 @@ ggsave(here("plots/sfig14.svg"), sf, width = 5, height = 5)
 #| fig.height: 10
 
 prot_rank_var <-
-  otu_r_df |> 
-    group_by(name, Phylum) |>
-    summarise(value = sum(value)) |>
-    filter(Phylum == "Proteobacteria") |>
-    arrange(desc(value))
+  otu_r_df |>
+  group_by(name, Phylum) |>
+  summarise(value = sum(value)) |>
+  filter(Phylum == "Proteobacteria") |>
+  arrange(desc(value))
 
 sf_c <-
-otu_r_df |>
+  otu_r_df |>
   left_join(
     btESBL_stoolESBL |>
       select(lab_id, sample_type),
     by = join_by(name == lab_id)
-) |>
+  ) |>
   group_by(name, Phylum, sample_type) |>
   summarise(value = sum(value)) |>
   filter(Phylum != "") |>
@@ -3141,28 +3105,30 @@ otu_r_df |>
   filter(!is.na(sample_type)) |>
   ggplot(aes(name, value, fill = Phylum)) +
   geom_col() +
-  facet_grid(~ sample_type, scales = "free_x", space = "free") +
+  facet_grid(~sample_type, scales = "free_x", space = "free") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, size = 1)) +
   labs(x = "Sample ID", y = "Proportion of Reads")
 
 
 sf_a <-
-estimate_richness(biom, measures = "Shannon") |>
+  estimate_richness(biom, measures = "Shannon") |>
   as_tibble(rownames = "lab_id") |>
   left_join(
     btESBL_stoolESBL |>
       select(lab_id, sample_type),
     by = join_by(lab_id)
-) |>
+  ) |>
   filter(!is.na(sample_type)) |>
-  ggplot(aes(sample_type, Shannon, group = sample_type, color = sample_type,
-      fill = sample_type)) + 
-    geom_jitter(size = 0.5) +
+  ggplot(aes(sample_type, Shannon,
+    group = sample_type, color = sample_type,
+    fill = sample_type
+  )) +
+  geom_jitter(size = 0.5) +
   geom_boxplot(alpha = 0.5, outliers = FALSE) +
   theme_bw() +
   labs(y = "Shannon Diversity", x = "", fill = "Sample Type", color = "Sample Type") +
-    theme(legend.position = "none")
+  theme(legend.position = "none")
 
 sf_b <-
   pcoa_df |>
@@ -3170,7 +3136,7 @@ sf_b <-
     btESBL_stoolESBL |>
       select(lab_id, sample_type),
     by = join_by(lab_id)
-) |>
+  ) |>
   filter(!is.na(sample_type)) |>
   ggplot(aes(Axis.1, Axis.2, color = sample_type, fill = sample_type, group = sample_type, shape = sample_type)) +
   geom_point(key_glyph = "polygon") +
@@ -3180,72 +3146,62 @@ sf_b <-
   # scale_fill_viridis_d() +
   guides(fill = guide_legend(override.aes = list(alpha = 0.5))) +
   labs(
-    x = "Axis 1 [25.6%]", y = "Axis 2 [14.8%]",
-, fill = "Sample Type", color =
-    "Sample Type", shape = "Sample Type"
-  ) 
+    x = "Axis 1 [25.6%]", y = "Axis 2 [14.8%]", ,
+    fill = "Sample Type", color =
+      "Sample Type", shape = "Sample Type"
+  )
 
 sf <-
-(sf_a + sf_b + plot_layout(widths = c(0.5,1))) / sf_c +
+  (sf_a + sf_b + plot_layout(widths = c(0.5, 1))) / sf_c +
   plot_annotation(tag_levels = "A")
 
 sf
 
 ggsave(here("plots/sfig15.pdf"), sf, width = 12, height = 10)
 ggsave(here("plots/sfig15.svg"), sf, width = 12, height = 10)
-
-
 ```
+
+## Read statistics
 
 ```{r}
 
 # extras for manuscript
 
 
-# subset_taxa(biom, Species == "sapiens")@otu_table@.Data -> human_reads
-#
-# biom@otu_table@.Data |>
-#   as_tibble(rownames = "tax_id") |>
-#   pivot_longer(-tax_id) |>
-#   group_by(name) |>
-#   summarise(reads = sum(value)) -> reads
-#
-#
-# reads |>
-#   left_join(
-#     btESBL_stoolESBL |>
-#   select(lab_id, sample_type)) |>
-#   group_by(sample_type) |>
-#   summarise(
-#     mean_reads = mean(reads)/1e6,
-#     sd_read = sd(reads)/1e6,
-#     mean_prop_human = mean(prop),
-#     sd_prop_human = sd(prop)
-#   )
-#
-# readstats <- read_tsv(here("data_raw/ECO_all_metagenomic_read_stats_for_JL_11_02_25.tab"))
-#
-# data.frame(lab_id = dimnames(human_reads)[[2]], hum_reads = human_reads[1:426]) |>
-#   left_join(
-#   readstats |>
-#   mutate(lab_id = str_extract(readstats$file, "C[0-9|A-Z]*(?=_)")) |>
-#   filter(lab_id != "C", !lab_id %in% samples_to_drop) |>
-#   group_by(lab_id) |>
-#   summarise(reads = sum(num_seqs)),
-#         by= join_by(lab_id == lab_id)) |>
-#   mutate(prop = hum_reads/reads) |>
-#   left_join(
-#     btESBL_stoolESBL |>
-#   select(lab_id, sample_type)) |>
-#   group_by(sample_type) |>
-#   summarise(
-#     median_reads = mean(reads)/1e6,
-#     lq_read = sd(reads)/1e6,
-#     mean_prop_human = mean(prop)*100,
-#     sd_prop_human = sd(prop)*100
-#   )
-#
 
 
-
+left_join(
+  read_tsv(here("data_raw/ECO_all_metagenomic_read_stats_for_JL_11_02_25.tab")) |>
+    mutate(lab_id = str_extract(file, "C[0-9|A-Z]*(?=_)")) |>
+    filter(lab_id != "C", !lab_id %in% samples_to_drop) |>
+    group_by(lab_id) |>
+    summarise(reads = sum(num_seqs)),
+  read_tsv(here("data_raw/ECO_host_read_counts_08-10-25.txt")) |>
+    mutate(lab_id = str_extract(Reads, "C[0-9|A-Z]*(?=_)")) |>
+    filter(lab_id != "C", !lab_id %in% samples_to_drop) |>
+    group_by(lab_id) |>
+    summarise(human_reads = sum(Human_reads_removed)),
+  by = join_by(lab_id == lab_id)
+) |>
+  mutate(prop = human_reads / reads) |>
+  left_join(
+    btESBL_stoolESBL |>
+      select(lab_id, sample_type)
+  ) |>
+  filter(!is.na(sample_type)) |>
+  group_by(sample_type) |>
+  summarise(
+    median_reads = median(reads) / 1e6,
+    lq_read = quantile(reads, 0.25) / 1e6,
+    uq_read = quantile(reads, 0.75) / 1e6,
+    mean_perc_human = median(prop) * 100,
+    lq_perc = quantile(prop, 0.25) * 100,
+    uq_perc = quantile(prop, 0.75) * 100
+  ) |>
+  kbl(caption = "Read statistics", col.names = c("Sample Type", rep(c(
+    "Median",
+    "LQ", "UQ"
+  ), 2)), digits = 1) |>
+  kable_classic(full_width = FALSE) |>
+  add_header_above(c(" " = 1, "Number of reads (million)" = 3, "Percentage Human" = 3))
 ```
